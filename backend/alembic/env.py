@@ -1,5 +1,6 @@
 from logging.config import fileConfig
 from app.db.base import Base
+from app.core.config import settings
 
 from app.modules.auth.models import User
 from app.modules.profiling.models import UserProfile
@@ -12,6 +13,9 @@ from alembic import context
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+# Override sqlalchemy.url from our app settings (.env file)
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
