@@ -7,8 +7,22 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/neuro_db"
 
+    # JWT
+    SECRET_KEY: str = "CHANGE_ME_TO_A_RANDOM_SECRET_KEY"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+
+    # Google OAuth2
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+
+    # Frontend URL (for CORS)
+    FRONTEND_URL: str = "http://localhost:3000"
+
     model_config = ConfigDict(
-        case_sensitive=True
+        case_sensitive=True,
+        env_file=".env",
+        extra="ignore",
     )
 
 settings = Settings()
