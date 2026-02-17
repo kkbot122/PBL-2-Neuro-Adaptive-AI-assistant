@@ -5,7 +5,11 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Backend Service"
     API_V1_STR: str = "/api/v1"
 
+    # Database
     DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/neuro_db"
+
+    # INTERNAL AUTH (New! This connects Next.js to FastAPI securely)
+    INTERNAL_API_KEY: str = "dev_secret_key_123" 
 
     # JWT
     SECRET_KEY: str = "CHANGE_ME_TO_A_RANDOM_SECRET_KEY"
