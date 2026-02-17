@@ -1,23 +1,12 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Dict, Any
 
+class UserSync(BaseModel):
+    email: EmailStr
+    full_name: str | None = None
+    provider_id: str  # The unique ID from Google/GitHub
 
-class GoogleLoginRequest(BaseModel):
-    token: str  # The Google ID token from frontend
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
-class UserResponse(BaseModel):
-    id: int
-    email: str
-    full_name: Optional[str] = None
-    picture: Optional[str] = None
-    is_active: bool
-    auth_provider: str
-
-    class Config:
-        from_attributes = True
+class ProfileUpdate(BaseModel):
+    user_email: str
+    archetype: str          # e.g., "THE_VISUALIZER"
+    scores: Dict[str, Any]
