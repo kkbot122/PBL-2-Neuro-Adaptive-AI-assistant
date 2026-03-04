@@ -23,12 +23,19 @@ class UserProfile(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     
-    # The "Winner" Archetype (e.g., 'THE_VISUALIZER')
+    # High-level classification
     primary_archetype = Column(String, default="THE_DEBUGGER") 
     
-    # Detailed scores
-    raw_scores = Column(JSON, default={})
+    # High-resolution affinity scores (0-100)
+    visual_affinity = Column(Integer, default=0)    # Preference for diagrams
+    textual_affinity = Column(Integer, default=0)   # Preference for text
+    depth_preference = Column(Integer, default=0)   # Detail-oriented vs. Summary-oriented
+    logic_preference = Column(Integer, default=0)   # Rules/Logic vs. Big Picture
     
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    # Metadata for better characterization
+    total_engagement_time = Column(Integer, default=0) 
+    last_active = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+    
+    raw_scores = Column(JSON, default={}) 
     
     user = relationship("User", back_populates="profile")
