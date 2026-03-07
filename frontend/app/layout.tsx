@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Kodchasan } from "next/font/google";
-import AuthProvider from "@/components/AuthProvider";
-import Navbar from "@/components/Navbar"; // 1. Import the Navbar we created
+import AuthProvider from "@/components/AuthProvider"; 
 import "./globals.css";
 
 const geistSans = Geist({
@@ -37,7 +36,6 @@ export default function RootLayout({
       >
         <AuthProvider>
           {/* 2. Place Navbar inside AuthProvider so it can access user state if needed */}
-          <Navbar /> 
           
           {/* 3. Wrap children in a container to provide consistent spacing below the Navbar */}
           <main className="min-h-screen">

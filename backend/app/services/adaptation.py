@@ -1,26 +1,22 @@
-from app.core.archetypes import get_archetype_instruction
-
 class AdaptationService:
     @staticmethod
     def adapt_content(original_text: str, archetype: str) -> str:
         """
         Simulates AI content adaptation based on the user's archetype.
-        In the future, this is where the Gemini/OpenAI API call happens.
+        In the future, this is where the Ollama/Local LLM generation happens.
         """
-        
-        if archetype == "THE_STRATEGIC_SKIMMER":
-            return f"**TL;DR:** {original_text[:100]}... \n\n* Key Point 1\n* Key Point 2"
-        
-        elif archetype == "THE_VISUAL_ARCHITECT":
-            return f"{original_text[:150]}... \n\n| Concept | Relation |\n| :--- | :--- |\n| Qubit | Superposition |"
-        
-        elif archetype == "THE_DEEP_SCHOLAR":
-            return f"Exhaustive Analysis: {original_text}. Furthermore, considering the historical context of the 1920s Copenhagen interpretation..."
-        
-        elif archetype == "THE_LOGICAL_TINKERER":
-            return f"Logic Flow: \n1. Start: {original_text[:50]}\n2. Process: IF input THEN {original_text[50:100]}"
+        if archetype == "THE_SPRINTER":
+            # Just take the first sentence for a clean MVP summary
+            first_sentence = original_text.split('.')[0] + "."
+            return f"**Quick Summary:** {first_sentence}"
             
-        # Fallback for Pioneer or Generalist
-        return original_text
+        elif archetype == "THE_VISUALIZER":
+            return f"{original_text}\n\n*[System triggers diagram generation for this concept]*"
+            
+        elif archetype == "THE_ARCHITECT":
+            return f"**Core Concept:** The structure relies on this principle.\n{original_text}"
+            
+        # Fallback for THE_DEBUGGER (Likes linear, unaltered reading)
+        return original_text 
 
 adaptation_service = AdaptationService()

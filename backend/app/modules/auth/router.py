@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.modules.auth.models import User, UserProfile
+from app.modules.auth.models import User
+from app.modules.profiling.models import UserProfile
 # Import the new schema
 from app.modules.auth.schemas import UserSync, ProfileUpdate
 from app.core.config import settings

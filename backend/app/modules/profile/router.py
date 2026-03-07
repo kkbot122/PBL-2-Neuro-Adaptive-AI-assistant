@@ -1,110 +1,63 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
-from app.db.session import SessionLocal
-from app.modules.auth.models import User, UserProfile
-from pydantic import BaseModel
+from app.db.session import get_db
+from app.modules.auth.models import User
+from app.modules.profiling.models import UserProfile
+from app.modules.profile.schemas import CalibrationRequest, ProfileResponse
+from app.modules.profile.service import calculate_profile
+from app.core.config import settings
 
 router = APIRouter()
 
-class PulseRequest(BaseModel):
-    paragraph_id: int
-    seconds: int
-    dimension: str # "textual", "visual", "depth", "logic"
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# --- REFINED: ARCHETYPE CALCULATION LOGIC ---
-def _determine_archetype(visual: int, textual: int, depth: int, logic: int) -> str:
-    """
-    Categorizes the user into a high-resolution learner persona.
-    """
-    total = visual + textual + logic
+# --- Security Gatekeeper ---
+async def get_current_user(
+    x_user_email: str = Header(...),
+    x_internal_token: str = Header(...),
+    db: Session = Depends(get_db)
+):
+    if x_internal_token != settings.INTERNAL_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid Internal API Key")
     
-    # 1. THE PIONEER: New user or very low engagement
-    if total < 10:
-        return "THE_PIONEER"
-    
-    # 2. THE VISUAL ARCHITECT: Strong preference for spatial/visual data
-    # (Visual is significantly higher than textual and logic)
-    if visual > (textual * 1.4) and visual > (logic * 1.4):
-        return "THE_VISUAL_ARCHITECT"
-    
-    # 3. THE DEEP SCHOLAR: High textual focus with long dwell times (depth)
-    if textual > visual and depth > 40:
-        return "THE_DEEP_SCHOLAR"
-    
-    # 4. THE STRATEGIC SKIMMER: High textual focus but very low dwell times
-    if textual > (visual * 1.5) and depth < 15:
-        return "THE_STRATEGIC_SKIMMER"
+    user = db.query(User).filter(User.email == x_user_email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found in DB")
+    return user
 
-    # 5. THE LOGICAL TINKERER: High focus on code, steps, or logical sequences
-    if logic > textual and logic > visual:
-        return "THE_LOGICAL_TINKERER"
-
-    # 6. THE ADAPTIVE GENERALIST: Balanced interaction across all modes
-    return "THE_ADAPTIVE_GENERALIST"
-
-@router.post("/pulse")
-def receive_pulse(data: PulseRequest, user_id: int = 1, db: Session = Depends(get_db)):
-    # 1. Safety Check: Does the user exist?
-    user_exists = db.query(User).filter(User.id == user_id).first()
-    if not user_exists:
-        raise HTTPException(status_code=400, detail="User not found in database.")
-
-    # 2. Retrieve or Initialize Profile
-    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
-    if not profile:
+# --- Get Profile Endpoint ---
+@router.get("/me", response_model=ProfileResponse)
+def get_my_profile(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user.profile:
+        # Auto-create a blank profile if they haven't taken the test
+        empty_scores = {"visual": 0, "structural": 0, "active": 0, "logic": 0}
         profile = UserProfile(
-            user_id=user_id, 
-            primary_archetype="THE_PIONEER",
-            textual_affinity=0, visual_affinity=0, 
-            depth_preference=0, logic_preference=0,
-            total_engagement_time=0
+            user_id=user.id, 
+            primary_archetype="THE_DEBUGGER", 
+            raw_scores=empty_scores
         )
         db.add(profile)
-        db.flush()
+        db.commit()
+        db.refresh(profile)
+        return profile
+        
+    return user.profile
 
-    # 3. Process the Pulse (Increment specific dimension)
-    if data.dimension == "textual":
-        profile.textual_affinity += 1
-    elif data.dimension == "visual":
-        profile.visual_affinity += 1
-    elif data.dimension == "depth":
-        profile.depth_preference += 1
-    elif data.dimension == "logic":
-        profile.logic_preference += 1
+# --- Submit Telemetry Endpoint ---
+@router.post("/calibrate")
+def submit_calibration(
+    data: CalibrationRequest, 
+    user=Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    # Process the raw clicks/scrolls into a Profile
+    result = calculate_profile(data)
     
-    profile.total_engagement_time += data.seconds
-
-    # 4. Update intelligence label based on all dimensions
-    profile.primary_archetype = _determine_archetype(
-        profile.visual_affinity, 
-        profile.textual_affinity,
-        profile.depth_preference,
-        profile.logic_preference
-    )
+    if not user.profile:
+        user.profile = UserProfile(user_id=user.id)
+    
+    # Save to PostgreSQL
+    user.profile.primary_archetype = result["primary_archetype"]
+    user.profile.raw_scores = result["raw_scores"]
     
     db.commit()
-
-    return {
-        "status": "success", 
-        "current_archetype": profile.primary_archetype,
-        "scores": {
-            "textual": profile.textual_affinity,
-            "visual": profile.visual_affinity,
-            "depth": profile.depth_preference,
-            "logic": profile.logic_preference
-        }
-    }
-
-@router.get("/")
-def get_profile(user_id: int = 1, db: Session = Depends(get_db)):
-    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
-    if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
-    return profile
+    
+    return {"status": "calibrated", "archetype": result["primary_archetype"]}
