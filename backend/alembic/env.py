@@ -2,9 +2,6 @@ from logging.config import fileConfig
 from app.db.base import Base
 from app.core.config import settings
 
-from app.modules.auth.models import User
-from app.modules.profiling.models import UserProfile
-
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 

@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:16
+    container_name: neuro_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: neuro_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: neuro_backend
+    # Run migrations automatically, then start the server with hot-reloading
+    command: >
+      sh -c "alembic upgrade head && 
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "8000:8000"
+    environment:
+      # We override the .env DATABASE_URL so it connects to the 'db' container, not 'localhost'
+      - DATABASE_URL=postgresql://postgres:password@db:5432/neuro_db
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - db
+
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: neuro_frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/.env.local
+    environment:
+      # If Next.js does Server-Side Rendering (SSR), it needs the internal Docker network URL
+      - INTERNAL_API_URL=http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # Prevents local node_modules from breaking the container
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
