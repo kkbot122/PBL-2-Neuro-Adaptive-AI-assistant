@@ -1,12 +1,12 @@
-from pydantic import BaseModel, EmailStr
-from typing import Dict, Any
+from pydantic import BaseModel
+from typing import Dict, Any, Optional  # <--- Import Optional
 
 class UserSync(BaseModel):
-    email: EmailStr
-    full_name: str | None = None
-    provider_id: str  # The unique ID from Google/GitHub
+    email: str
+    full_name: Optional[str] = None     # <--- Change 'str | None' to 'Optional[str]'
+    provider_id: str
 
 class ProfileUpdate(BaseModel):
     user_email: str
-    archetype: str          # e.g., "THE_VISUALIZER"
+    archetype: str          
     scores: Dict[str, Any]
