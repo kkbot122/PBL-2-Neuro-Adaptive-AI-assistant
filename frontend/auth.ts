@@ -59,9 +59,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         });
 
         if (!response.ok) {
-          console.error("Backend Sync Failed:", await response.text());
-          return false; // Prevent login if backend sync fails
-        }
+  console.error("Backend Sync Failed:", await response.text());
+  return true; // allow login anyway
+}
         
         return true;
 
