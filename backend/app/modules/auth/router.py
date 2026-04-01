@@ -17,29 +17,35 @@ async def verify_internal_api_key(x_internal_token: str = Header(...)):
 # --- Sync Endpoint ---
 @router.post("/sync")
 def sync_user(user_data: UserSync, db: Session = Depends(get_db)):
-    # 1. Check if user exists
     user = db.query(User).filter(User.email == user_data.email).first()
     
     if not user:
-        # 2. If new, create User + Empty Profile
+        # If new, create User + Empty Profile
         new_user = User(
             email=user_data.email,
             full_name=user_data.full_name,
-            hashed_password="oauth_user", # Placeholder since NextAuth handles passwords
+            hashed_password="oauth_user", 
             is_active=True
         )
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
         
-        # Create empty profile
-        new_profile = UserProfile(user_id=new_user.id)
+        # Create empty profile explicitly
+        new_profile = UserProfile(user_id=new_user.id, raw_scores={})
         db.add(new_profile)
         db.commit()
         
-        return {"status": "created", "user_id": new_user.id}
+        return {"status": "created", "user_id": new_user.id, "is_onboarded": False}
     
-    return {"status": "exists", "user_id": user.id}
+    # Check if the existing user has completed the mission
+    is_onboarded = False
+    if user.profile and user.profile.raw_scores:
+        # If they have points in their radar chart, they are onboarded
+        if any(val > 0 for val in user.profile.raw_scores.values()):
+            is_onboarded = True
+
+    return {"status": "exists", "user_id": user.id, "is_onboarded": is_onboarded}
 
 # --- FIXED Update Endpoint ---
 @router.post("/profile/update", dependencies=[Depends(verify_internal_api_key)])

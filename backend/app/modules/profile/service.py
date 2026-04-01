@@ -1,3 +1,4 @@
+# app/modules/profile/service.py
 from app.modules.profile.schemas import CalibrationRequest
 
 # Standardized Archetype Dictionary
@@ -9,6 +10,9 @@ ARCHETYPES = {
 }
 
 def calculate_profile(data: CalibrationRequest) -> dict:
+    tel = data.telemetry
+    quiz = data.quiz_results
+
     # Baseline scores for the Radar Chart
     scores = {
         "visual": 10.0,      
@@ -18,24 +22,39 @@ def calculate_profile(data: CalibrationRequest) -> dict:
     }
 
     # 1. Visualizer Signals
-    if data.clicked_diagram:
-        scores["visual"] += 30.0
-    
-    # 2. Architect (Structural) Signals
-    if data.read_summary_first:
-        scores["structural"] += 30.0
-    if data.time_spent_on_text < 30 and not data.scrolled_erratically:
+    if tel.clicked_diagram:
+        scores["visual"] += 15.0
+    # Add points based on time spent on diagram (cap at 20 pts)
+    scores["visual"] += min(tel.time_spent_on_visuals, 20.0)
+    # Huge boost if they got the visual spatial question right
+    if quiz.q3_correct: 
+        scores["visual"] += 15.0
+
+    # 2. Architect (Structural) Signals - They like high-level concepts
+    if tel.read_summary_first:
+        scores["structural"] += 15.0
+    scores["structural"] += min(tel.time_spent_on_summary, 20.0)
+    # Boost if they nailed the summary/concept question
+    if quiz.q2_correct: 
         scores["structural"] += 15.0
 
-    # 3. Sprinter (Active) Signals
-    if data.interacted_with_quiz:
-        scores["active"] += 25.0
-    if data.scrolled_erratically:
+    # 3. Sprinter (Active) Signals - Fast, hands-on, impatient
+    if tel.scrolled_erratically:
         scores["active"] += 20.0
+    # If they skimmed fast but still scored well, they are efficient Sprinters
+    if tel.time_spent_on_text < 20 and quiz.score >= 2:
+        scores["active"] += 20.0
+    # High clicking behavior
+    if tel.clicked_diagram and tel.read_summary_first:
+        scores["active"] += 10.0
 
-    # 4. Debugger (Logic) Signals
-    if data.time_spent_on_text > 45 and not data.scrolled_erratically and not data.read_summary_first:
-        scores["logic"] += 30.0
+    # 4. Debugger (Logic/Detail) Signals - Methodical, deep readers
+    scores["logic"] += min(tel.time_spent_on_text, 20.0)
+    if not tel.scrolled_erratically and not tel.read_summary_first:
+        scores["logic"] += 10.0
+    # Boost if they got the rote text detail question right
+    if quiz.q1_correct: 
+        scores["logic"] += 15.0
 
     # Cap all scores at 50 max for the UI Radar Chart
     for key in scores:

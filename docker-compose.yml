@@ -17,11 +17,10 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: neuro_backend
-    command: sh wait-for-db.sh
+    command: sh -c "./wait-for-db.sh && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/neuro_db
+    # Notice: We removed the hardcoded DATABASE_URL and INTERNAL_API_KEY
     env_file:
       - ./backend/.env
     volumes:
@@ -39,11 +38,13 @@ services:
     env_file:
       - ./frontend/.env.local
     environment:
-      # If Next.js does Server-Side Rendering (SSR), it needs the internal Docker network URL
+      # It is okay to leave non-secret configuration variables here
       - INTERNAL_API_URL=http://backend:8000
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
     volumes:
       - ./frontend:/app
-      - /app/node_modules # Prevents local node_modules from breaking the container
+      - /app/node_modules
     depends_on:
       - backend
 

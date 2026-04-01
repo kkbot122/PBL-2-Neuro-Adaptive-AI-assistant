@@ -6,6 +6,8 @@ from app.modules.profiling.models import UserProfile
 from app.modules.profile.schemas import CalibrationRequest, ProfileResponse
 from app.modules.profile.service import calculate_profile
 from app.core.config import settings
+from app.modules.profile.schemas import ArchetypeOverrideRequest
+from app.modules.profile.service import ARCHETYPES
 
 router = APIRouter()
 
@@ -61,3 +63,22 @@ def submit_calibration(
     db.commit()
     
     return {"status": "calibrated", "archetype": result["primary_archetype"]}
+
+# 
+@router.patch("/override")
+def override_archetype(
+    data: ArchetypeOverrideRequest, 
+    user=Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    if not user.profile:
+        raise HTTPException(status_code=404, detail="Profile not found. Please calibrate first.")
+    
+    valid_archetypes = list(ARCHETYPES.values())
+    if data.primary_archetype not in valid_archetypes:
+        raise HTTPException(status_code=400, detail="Invalid archetype selection.")
+
+    user.profile.primary_archetype = data.primary_archetype
+    db.commit()
+    
+    return {"status": "updated", "archetype": user.profile.primary_archetype}
