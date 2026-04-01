@@ -20,9 +20,7 @@ services:
     command: sh -c "./wait-for-db.sh && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/neuro_db
-      - INTERNAL_API_KEY=7ceecf26b5afc3684d5e4dfaebed9582e233babd7f637ddcf059cb82b42d746a
+    # Notice: We removed the hardcoded DATABASE_URL and INTERNAL_API_KEY
     env_file:
       - ./backend/.env
     volumes:
@@ -40,14 +38,13 @@ services:
     env_file:
       - ./frontend/.env.local
     environment:
+      # It is okay to leave non-secret configuration variables here
       - INTERNAL_API_URL=http://backend:8000
-      - INTERNAL_API_KEY=7ceecf26b5afc3684d5e4dfaebed9582e233babd7f637ddcf059cb82b42d746a
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
-      - AUTH_SECRET=NEXT
     volumes:
       - ./frontend:/app
-      - /app/node_modules # Prevents local node_modules from breaking the container
+      - /app/node_modules
     depends_on:
       - backend
 
