@@ -17,7 +17,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: neuro_backend
-    command: sh -c "./wait-for-db.sh && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    command: sh wait-for-db.sh
     ports:
       - "8000:8000"
     # Notice: We removed the hardcoded DATABASE_URL and INTERNAL_API_KEY
