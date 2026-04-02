@@ -14,6 +14,7 @@ from app.modules.profiling import models as profiling_models
 from app.modules.auth.router import router as auth_router
 from app.modules.content.router import router as content_router
 from app.modules.profile.router import router as profile_router
+from app.modules.chat.router import router as chat_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -43,6 +44,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 app.include_router(content_router, prefix=f"{settings.API_V1_STR}/content", tags=["content"])
 app.include_router(profile_router, prefix=f"{settings.API_V1_STR}/profile", tags=["profile"])
+app.include_router(chat_router, prefix=f"{settings.API_V1_STR}/chat", tags=["chat"])
 
 # --- Health check ---
 @app.get("/health")
