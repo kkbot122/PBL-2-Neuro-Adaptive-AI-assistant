@@ -22,9 +22,28 @@ interface QuizResultsData {
 }
 
 // 2. Define the main payload interface wrapper
-interface CalibrationPayload {
-  telemetry: TelemetryData;
-  quiz_results: QuizResultsData;
+export interface CalibrationPayload {
+  telemetry: {
+    clicked_diagram: boolean;
+    read_summary_first: boolean;
+    time_spent_on_text: number;
+    time_spent_on_visuals: number;
+    time_spent_on_summary: number;
+    scrolled_erratically: boolean;
+    reading_speed_wpm: number; // Added in Phase 3
+  };
+  quiz_results: {
+    total_score: number;
+    q1: QuestionMetric;
+    q2: QuestionMetric;
+    q3: QuestionMetric;
+  };
+}
+
+interface QuestionMetric {
+  is_correct: boolean;
+  time_to_answer_ms: number;
+  changed_answer: boolean;
 }
 
 export async function overrideUserArchetype(newArchetype: string) {

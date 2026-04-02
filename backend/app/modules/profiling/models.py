@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, JSON, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, JSON, DateTime, Float # <-- Added Float
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.base import Base
@@ -23,5 +23,11 @@ class UserProfile(Base):
                          onupdate=func.now())
 
     raw_scores = Column(JSON, default={})
+
+    # --- NEW PROGRESSIVE PROFILING FIELDS ---
+    # Starts at 0.5 (50%) because a single test isn't 100% certain
+    archetype_confidence = Column(Float, default=0.5) 
+    # Tracks how many learning sessions/tests have influenced this profile
+    calibration_count = Column(Integer, default=1) 
 
     user = relationship("User", back_populates="profile")

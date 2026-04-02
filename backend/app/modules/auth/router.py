@@ -32,7 +32,8 @@ def sync_user(user_data: UserSync, db: Session = Depends(get_db)):
         db.refresh(new_user)
         
         # Create empty profile explicitly
-        new_profile = UserProfile(user_id=new_user.id, raw_scores={})
+        new_profile = UserProfile(user_id=new_user.id, raw_scores={},archetype_confidence=0.0,
+            calibration_count=0)
         db.add(new_profile)
         db.commit()
         
