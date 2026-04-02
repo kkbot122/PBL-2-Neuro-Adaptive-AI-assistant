@@ -12,13 +12,29 @@ import {
   FileText,
 } from "lucide-react";
 
+type Message = {
+  role: "user" | "bot";
+  content: string;
+};
+
 export default function ChatPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
   const [prompt, setPrompt] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isLoading]);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -35,23 +51,38 @@ export default function ChatPage() {
   const handleSubmit = async () => {
     if (!prompt.trim() && !selectedFile) return;
 
-    console.log("User Prompt (Chat Page):", prompt);
-    if (selectedFile) {
-        console.log("Selected File:", selectedFile.name);
-    }
+    const userMessage = prompt.trim();
+    const displayMessage = userMessage || (selectedFile ? `Attached file: ${selectedFile.name}` : "");
+    
+    setMessages((prev) => [...prev, { role: "user", content: displayMessage }]);
+    setIsLoading(true);
 
     const formData = new FormData();
-    formData.append("prompt", prompt);
+    formData.append("prompt", userMessage);
     
     if (selectedFile) {
       formData.append("file", selectedFile);
     }
 
-    // Later connect to AI API
-    // await fetch("/api/chat", {
-    //   method: "POST",
-    //   body: formData
-    // })
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        body: formData
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMessages((prev) => [...prev, { role: "bot", content: data.text }]);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        setMessages((prev) => [...prev, { role: "bot", content: `Error: ${errorData.error || "Failed to process request."}` }]);
+      }
+    } catch (error) {
+      console.error(error);
+      setMessages((prev) => [...prev, { role: "bot", content: "Error: Something went wrong." }]);
+    } finally {
+      setIsLoading(false);
+    }
 
     setPrompt("");
     setSelectedFile(null);
@@ -111,13 +142,45 @@ export default function ChatPage() {
         </div>
       </nav>
 
-      {/* CHAT AREA (Placeholder for now) */}
-      <main className="flex-1 max-w-4xl mx-auto w-full px-6 py-10 flex flex-col justify-center items-center text-center">
-        <div className="bg-white border-2 border-black p-8 rounded-2xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] mb-8">
+      {/* CHAT AREA */}
+      <main className={`flex-1 max-w-4xl mx-auto w-full px-6 py-10 flex flex-col ${messages.length === 0 ? "justify-center items-center text-center" : "overflow-y-auto"}`}>
+        {messages.length === 0 ? (
+          <div className="bg-white border-2 border-black p-8 rounded-2xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] mb-8">
             <Brain className="w-16 h-16 text-purple-600 mx-auto mb-4" />
             <h2 className="text-2xl font-bold mb-2">New conversation</h2>
-            <p className="text-gray-600">Start learning something new with Neuro Neuro AI.</p>
-        </div>
+            <p className="text-gray-600">Start learning something new with Neuro AI.</p>
+          </div>
+        ) : (
+          <div className="w-full flex-1 flex flex-col gap-6 text-left pb-4">
+            {messages.map((msg, index) => (
+              <div key={index} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                {msg.role === "bot" && (
+                  <div className="w-8 h-8 mr-3 mt-1 bg-purple-500 rounded-lg border-2 border-black flex-shrink-0 flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                    <Brain className="w-5 h-5 text-white" />
+                  </div>
+                )}
+                <div className={`max-w-[80%] p-4 rounded-xl border-2 border-black ${msg.role === "user" ? "bg-purple-100 rounded-br-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-black" : "bg-white rounded-bl-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-black"}`}>
+                  <div className="prose prose-sm md:prose-base whitespace-pre-wrap">
+                    {msg.content}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="w-8 h-8 mr-3 mt-1 bg-purple-500 rounded-lg border-2 border-black flex-shrink-0 flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                  <Brain className="w-5 h-5 text-white" />
+                </div>
+                <div className="p-4 rounded-xl border-2 border-black bg-white rounded-bl-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-black flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-black animate-bounce" />
+                  <div className="w-2 h-2 rounded-full bg-black animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <div className="w-2 h-2 rounded-full bg-black animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} className="h-4" />
+          </div>
+        )}
       </main>
 
       {/* CHAT INPUT */}
