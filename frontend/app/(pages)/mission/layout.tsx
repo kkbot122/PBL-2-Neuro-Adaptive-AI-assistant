@@ -1,5 +1,7 @@
+// frontend/app/(pages)/mission/layout.tsx
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers"; // <-- Import headers!
 
 export default async function MissionLayout({
   children,
@@ -12,8 +14,6 @@ export default async function MissionLayout({
   }
 
   const apiUrl = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://backend:8000";
-  
-  // 1. Create a flag outside the try/catch block
   let shouldRedirect = false;
 
   try {
@@ -28,11 +28,14 @@ export default async function MissionLayout({
     if (res.ok) {
       const profile = await res.json();
       const raw = profile.raw_scores || {};
-      
       const isOnboarded = Object.keys(raw).length > 0 && Object.values(raw).some((v: any) => v > 0);
       
-      if (isOnboarded) {
-        // 2. Set the flag to true instead of redirecting immediately
+      // MAGIC TRICK: Check if the request is an active Server Action
+      const headersList = await headers();
+      const isServerAction = headersList.has("next-action");
+      
+      // Only kick them out if they are onboarded AND they aren't currently submitting the quiz
+      if (isOnboarded && !isServerAction) {
         shouldRedirect = true; 
       }
     }
@@ -40,7 +43,6 @@ export default async function MissionLayout({
     console.error("Failed to verify onboarding status in layout:", error);
   }
 
-  // 3. THE BOUNCER: Trigger the redirect OUTSIDE the try/catch!
   if (shouldRedirect) {
     redirect("/dashboard");
   }
