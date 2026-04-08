@@ -36,12 +36,6 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages, isLoading]);
 
-  useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/signin");
-    }
-  }, [status, router]);
-
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setSelectedFile(e.target.files[0]);

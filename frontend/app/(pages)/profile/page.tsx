@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
 import { useSession } from "next-auth/react";
+import { getMyProfileAction } from "@/app/actions/profile"; // <-- Import the Server Action
 
 interface ProfileData {
   primary_archetype: string;
@@ -23,14 +24,8 @@ export default function ProfileDashboard() {
     setMounted(true);
     if (!session?.user?.email) return;
 
-    // FIXED: Actually parse the response and set the state!
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/profile/me`, {
-      headers: {
-        "x-user-email": session.user.email,
-        "x-internal-token": process.env.NEXT_PUBLIC_INTERNAL_API_KEY || "dev_secret_key_123",
-      },
-    })
-      .then((res) => res.json())
+    // Securely fetch profile using the Server Action
+    getMyProfileAction()
       .then((data) => setProfile(data))
       .catch((err) => console.error("Error fetching profile", err));
   }, [session]);
