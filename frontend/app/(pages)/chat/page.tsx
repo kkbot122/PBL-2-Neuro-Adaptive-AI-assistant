@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import {
   Brain,
+  LogOut,
+  BookOpen,
+  Target,
+  Activity,
+  User as UserIcon,
   Plus,
   Send,
   ArrowLeft,
@@ -25,12 +30,69 @@ export default function ChatPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // LOAD HISTORY if sessionId exists
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sid = urlParams.get("sessionId");
+    
+    if (sid && session?.user?.email) {
+      const sessionIdInt = parseInt(sid);
+      setCurrentSessionId(sessionIdInt);
+      
+      const fetchHistory = async () => {
+        try {
+          const res = await fetch(`/api/chat/history?sessionId=${sid}`);
+          if (res.ok) {
+            const history = await res.json();
+            setMessages(history.map((m: any) => ({
+                role: m.role,
+                content: m.content
+            })));
+          }
+        } catch (e) {
+          console.error("Failed to load history", e);
+        }
+      };
+      fetchHistory();
+    }
+  }, [session]);
+
   const scrollToBottom = () => {
+
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  // FEEDBACK LOOP: Handle returning from a quiz
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("quiz_done") === "true") {
+      const results = sessionStorage.getItem("last_quiz_results");
+      if (results) {
+        const parsedResults = JSON.parse(results);
+        const feedbackPrompt = `I just finished the quiz "${parsedResults.title}". 
+Score: ${parsedResults.score}/${parsedResults.total}.
+Areas for improvement: ${parsedResults.missed_topics.join(", ") || "None"}.
+What are my next steps for learning?`;
+        
+        // Clear the storage and URL to prevent infinite loop
+        sessionStorage.removeItem("last_quiz_results");
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        // Auto-submit the feedback
+        setPrompt(feedbackPrompt);
+        // We trigger the submit after a short delay to ensure state is ready
+        setTimeout(() => {
+           const btn = document.querySelector("#send-btn") as HTMLButtonElement;
+           btn?.click();
+        }, 500);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
@@ -53,6 +115,9 @@ export default function ChatPage() {
 
     const formData = new FormData();
     formData.append("prompt", userMessage);
+    if (currentSessionId) {
+      formData.append("session_id", currentSessionId.toString());
+    }
     
     if (selectedFile) {
       formData.append("file", selectedFile);
@@ -67,6 +132,11 @@ export default function ChatPage() {
       if (response.ok) {
         const data = await response.json();
         setMessages((prev) => [...prev, { role: "bot", content: data.text }]);
+        if (data.session_id && data.session_id !== currentSessionId) {
+            setCurrentSessionId(data.session_id);
+            // Optional: update URL to reflect session
+            window.history.replaceState({}, "", `/chat?sessionId=${data.session_id}`);
+        }
       } else {
         const errorData = await response.json().catch(() => ({}));
         setMessages((prev) => [...prev, { role: "bot", content: `Error: ${errorData.error || "Failed to process request."}` }]);
@@ -146,20 +216,50 @@ export default function ChatPage() {
           </div>
         ) : (
           <div className="w-full flex-1 flex flex-col gap-6 text-left pb-4">
-            {messages.map((msg, index) => (
-              <div key={index} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                {msg.role === "bot" && (
-                  <div className="w-8 h-8 mr-3 mt-1 bg-purple-500 rounded-lg border-2 border-black flex-shrink-0 flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                    <Brain className="w-5 h-5 text-white" />
+            {messages.map((msg, index) => {
+              // Parse for quiz tags
+              const quizMatch = msg.content.match(/<quiz>([\s\S]*?)<\/quiz>/);
+              const cleanContent = msg.content.replace(/<quiz>([\s\S]*?)<\/quiz>/, "").trim();
+              const hasQuiz = msg.role === "bot" && quizMatch && quizMatch[1];
+
+              return (
+                <div key={index} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                  <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} w-full`}>
+                    {msg.role === "bot" && (
+                      <div className="w-8 h-8 mr-3 mt-1 bg-purple-500 rounded-lg border-2 border-black flex-shrink-0 flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                        <Brain className="w-5 h-5 text-white" />
+                      </div>
+                    )}
+                    <div className={`max-w-[80%] p-4 rounded-xl border-2 border-black ${msg.role === "user" ? "bg-purple-100 rounded-br-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-black" : "bg-white rounded-bl-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-black"}`}>
+                      <div className="prose prose-sm md:prose-base whitespace-pre-wrap">
+                        {cleanContent || (hasQuiz ? "I've prepared a test based on our discussion. Are you ready?" : "...")}
+                      </div>
+                    </div>
                   </div>
-                )}
-                <div className={`max-w-[80%] p-4 rounded-xl border-2 border-black ${msg.role === "user" ? "bg-purple-100 rounded-br-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-black" : "bg-white rounded-bl-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-black"}`}>
-                  <div className="prose prose-sm md:prose-base whitespace-pre-wrap">
-                    {msg.content}
-                  </div>
+
+                  {/* READY BUTTON FOR QUIZ */}
+                  {hasQuiz && (
+                    <div className="ml-11 mt-4">
+                      <button
+                        onClick={() => {
+                          try {
+                            const quizData = JSON.parse(quizMatch![1]);
+                            sessionStorage.setItem("current_quiz", JSON.stringify(quizData));
+                            router.push("/quiz");
+                          } catch (e) {
+                            console.error("Failed to parse quiz JSON", e);
+                          }
+                        }}
+                        className="bg-[#FF9F1C] hover:bg-[#ff8c00] border-2 border-black px-6 py-2.5 rounded-lg font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-x-1 active:translate-y-1 active:shadow-none flex items-center gap-2"
+                      >
+                        <Target className="w-5 h-5" />
+                        Ready to answer questions
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {isLoading && (
               <div className="flex justify-start">
                 <div className="w-8 h-8 mr-3 mt-1 bg-purple-500 rounded-lg border-2 border-black flex-shrink-0 flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
@@ -231,6 +331,7 @@ export default function ChatPage() {
           />
 
           <button
+            id="send-btn"
             onClick={handleSubmit}
             className="p-2 bg-black text-white rounded-full hover:bg-gray-800 transition-colors"
           >

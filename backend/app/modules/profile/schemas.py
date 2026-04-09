@@ -26,6 +26,7 @@ class CalibrationRequest(BaseModel):
 class ProfileResponse(BaseModel):
     primary_archetype: str
     raw_scores: Dict[str, float]
+    learning_sessions_count: int = 0
 
     class Config:
         from_attributes = True

@@ -27,22 +27,36 @@ async def get_current_user(
         raise HTTPException(status_code=404, detail="User not found in DB")
     return user
 
+from app.modules.chat.models import ChatSession
+from app.modules.content.models import ArticleReading
+
 # --- Get Profile Endpoint ---
 @router.get("/me", response_model=ProfileResponse)
 def get_my_profile(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    # 1. Ensure profile exists
     if not user.profile:
         empty_scores = {"visual": 0, "structural": 0, "active": 0, "logic": 0}
-        profile = UserProfile(
+        user.profile = UserProfile(
             user_id=user.id, 
             primary_archetype="THE_DEBUGGER", 
             raw_scores=empty_scores
         )
-        db.add(profile)
+        db.add(user.profile)
         db.commit()
-        db.refresh(profile)
-        return profile
+        db.refresh(user.profile)
+    
+    # 2. Calculate Total Sessions (Both chat and articles)
+    chat_count = db.query(ChatSession).filter(ChatSession.user_id == user.id).count()
+    article_count = db.query(ArticleReading).filter(ArticleReading.user_id == user.id).count()
+    
+    # 3. Create response object with sessions count
+    profile_data = {
+        "primary_archetype": user.profile.primary_archetype,
+        "raw_scores": user.profile.raw_scores,
+        "learning_sessions_count": chat_count + article_count
+    }
         
-    return user.profile
+    return profile_data
 
 # --- Submit Telemetry Endpoint ---
 @router.post("/calibrate")

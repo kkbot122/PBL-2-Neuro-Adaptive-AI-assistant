@@ -10,6 +10,7 @@ import {
   Activity,
   User as UserIcon,
   Plus,
+  Clock,
 } from "lucide-react";
 
 // Helper to format "THE_VISUALIZER" into "Visualizer"
@@ -26,25 +27,29 @@ export default async function DashboardPage() {
     redirect("/signin");
   }
 
-  // 2. Fetch the user's profile securely
+  // 2. Fetch the user's profile and sessions securely
   const apiUrl =
     process.env.INTERNAL_API_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
     "http://backend:8000";
-  const res = await fetch(`${apiUrl}/api/v1/profile/me`, {
-    headers: {
-      "x-user-email": session.user.email,
-      "x-internal-token": process.env.INTERNAL_API_KEY as string,
-    },
-    cache: "no-store", // Ensure we always get the latest profile
-  });
+    
+  const commonHeaders = {
+    "x-user-email": session.user.email,
+    "x-internal-token": process.env.INTERNAL_API_KEY as string,
+  };
 
-  if (!res.ok) {
+  const [profileRes, sessionsRes] = await Promise.all([
+    fetch(`${apiUrl}/api/v1/profile/me`, { headers: commonHeaders, cache: "no-store" }),
+    fetch(`${apiUrl}/api/v1/chat/sessions`, { headers: commonHeaders, cache: "no-store" })
+  ]);
+
+  if (!profileRes.ok) {
     redirect("/mission");
   }
 
-  const profile = await res.json();
+  const profile = await profileRes.json();
   const raw = profile.raw_scores || {};
+  const recentSessions = sessionsRes.ok ? await sessionsRes.json() : [];
 
   // 3. Gatekeeper: If they have no scores, force them to calibrate!
   const isOnboarded =
@@ -84,7 +89,6 @@ export default async function DashboardPage() {
             </span>
           </div>
 
-          {/* Server Action Sign Out Form */}
           <form
             action={async () => {
               "use server";
@@ -126,7 +130,6 @@ export default async function DashboardPage() {
             profile.
           </p>
 
-          {/* Use Next.js Link instead of useRouter for Server Components */}
           <Link
             href="/chat"
             className="w-fit mt-6 flex items-center gap-3 bg-[#FF9F1C] hover:bg-[#ff8c00] border-2 border-black px-6 py-3 rounded-xl font-bold text-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-x-1 active:translate-y-1 active:shadow-none"
@@ -145,7 +148,7 @@ export default async function DashboardPage() {
             <h3 className="text-gray-500 font-bold text-sm uppercase">
               Learning Sessions
             </h3>
-            <p className="text-4xl font-bold mt-1">1</p>
+            <p className="text-4xl font-bold mt-1 text-blue-600">{profile.learning_sessions_count}</p>
           </div>
 
           <div className="bg-white border-2 border-black rounded-xl p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-y-1">
@@ -155,7 +158,6 @@ export default async function DashboardPage() {
             <h3 className="text-gray-500 font-bold text-sm uppercase">
               Cognitive Profile
             </h3>
-            {/* Display the dynamically fetched archetype! */}
             <p className="text-3xl font-bold mt-1 tracking-tight truncate">
               {formatArchetype(profile.primary_archetype)}
             </p>
@@ -168,8 +170,48 @@ export default async function DashboardPage() {
             <h3 className="text-gray-500 font-bold text-sm uppercase">
               Adaptive Score
             </h3>
-            {/* We can use their total score or engagement time here later */}
             <p className="text-4xl font-bold mt-1">94</p>
+          </div>
+        </div>
+
+        {/* RECENT MISSIONS SECTION */}
+        <div className="mt-16">
+          <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+            <div className="w-2 h-8 bg-purple-500 border-2 border-black" />
+            Neural Missions
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {recentSessions.length > 0 ? (
+              recentSessions.map((s: any) => (
+                <Link
+                  key={s.id}
+                  href={`/chat?sessionId=${s.id}`}
+                  className="bg-white border-2 border-black p-5 rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all flex items-center justify-between group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="p-2 bg-yellow-100 border-2 border-black rounded-lg">
+                      <Brain className="w-5 h-5 text-yellow-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-lg group-hover:underline underline-offset-4 truncate max-w-[200px]">
+                        {s.title}
+                      </h4>
+                      <p className="text-xs text-gray-400 font-bold uppercase flex items-center gap-1 mt-1">
+                        <Clock className="w-3 h-3" />
+                        {new Date(s.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  <Plus className="w-5 h-5 text-gray-300 group-hover:text-black group-hover:rotate-45 transition-all" />
+                </Link>
+              ))
+            ) : (
+              <div className="col-span-full bg-white border-2 border-black border-dashed p-10 rounded-2xl flex flex-col items-center justify-center opacity-50">
+                <Brain className="w-12 h-12 mb-4" />
+                <p className="font-bold">No Neural Missions started yet.</p>
+              </div>
+            )}
           </div>
         </div>
       </main>
