@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Brain, ArrowLeft, CheckCircle2, XCircle, ChevronRight, Trophy } from "lucide-react";
+import { applyBehavioralSignalsAction } from "@/app/actions/profile";
 
 interface Question {
   question: string;
@@ -10,6 +11,7 @@ interface Question {
   options: string[];
   correct_answer: string;
   explanation: string;
+  difficulty?: string;
 }
 
 interface QuizData {
@@ -24,11 +26,16 @@ export default function QuizPage() {
   const [answers, setAnswers] = useState<string[]>([]);
   const [showResults, setShowResults] = useState(false);
 
+  // FSLSM Latency Tracking
+  const questionStartTime = useRef<number>(Date.now());
+  const latencies = useRef<number[]>([]);
+
   useEffect(() => {
     const data = sessionStorage.getItem("current_quiz");
     if (data) {
       try {
         setQuiz(JSON.parse(data));
+        questionStartTime.current = Date.now(); // Start timer for first question
       } catch (e) {
         console.error("Quiz parsing error", e);
         router.push("/chat");
@@ -44,12 +51,17 @@ export default function QuizPage() {
   const isLastStep = currentStep === quiz.questions.length - 1;
 
   const handleSelect = (option: string) => {
+    // Record latency the moment they select an answer
+    const elapsed = (Date.now() - questionStartTime.current) / 1000;
+    latencies.current[currentStep] = elapsed;
+    
     const newAnswers = [...answers];
     newAnswers[currentStep] = option;
     setAnswers(newAnswers);
   };
 
   const handleNext = () => {
+    questionStartTime.current = Date.now(); // Reset timer for next question
     if (isLastStep) {
       setShowResults(true);
     } else {
@@ -74,17 +86,46 @@ export default function QuizPage() {
     return { score, total: quiz.questions.length, missedTopics };
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     const results = calculateResults();
+    const signals: string[] = [];
+
+    // Evaluate granular per-question signals
+    quiz.questions.forEach((q, i) => {
+      const correct = answers[i] === q.correct_answer;
+      const latency = latencies.current[i] ?? 99;
+      const isVisual = q.topic?.toLowerCase().includes("visual") || q.question?.toLowerCase().match(/diagram|chart|graph|spatial|layout/);
+      const isLogic  = q.difficulty === "hard" || q.question?.toLowerCase().match(/calculate|derive|prove|step|sequence/);
+
+      if (isVisual) signals.push(correct ? "quiz_got_visual_question" : "quiz_missed_visual_question");
+      if (isLogic) signals.push(correct ? "quiz_got_logic_question" : "quiz_missed_logic_question");
+
+      // Latency signals
+      if (latency < 8 && correct) signals.push("tried_example_immediately");
+      if (latency > 25 && correct) signals.push("reviewed_notes_before_reply");
+      if (latency > 30 && !correct) signals.push("asked_for_theory_first");
+    });
+
+    const uniqueSignals = [...new Set(signals)];
+    const savedSessionId = sessionStorage.getItem("chat_session_id");
+    const sessionIdNum = savedSessionId ? parseInt(savedSessionId, 10) : null;
+
+    if (uniqueSignals.length > 0) {
+      try {
+        await applyBehavioralSignalsAction(uniqueSignals, isNaN(sessionIdNum as number) ? null : sessionIdNum);
+      } catch (e) {
+        console.error("Signal fire failed", e);
+      }
+    }
+
     sessionStorage.setItem("last_quiz_results", JSON.stringify({
       title: quiz.title,
       score: results.score,
       total: results.total,
-      missed_topics: results.missedTopics
+      missed_topics: results.missedTopics,
+      signals_fired: uniqueSignals
     }));
-    // Include session ID in URL so chat page restores the correct session
-    // (avoids relying solely on sessionStorage which can be lost)
-    const savedSessionId = sessionStorage.getItem("chat_session_id");
+    
     const returnUrl = savedSessionId
       ? `/chat?quiz_done=true&sessionId=${savedSessionId}`
       : "/chat?quiz_done=true";

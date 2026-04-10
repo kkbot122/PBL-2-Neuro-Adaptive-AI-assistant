@@ -99,13 +99,15 @@ export async function nudgeFSLSMVectorAction(
 
 /** Submit behavioral signal names to update FSLSM vector. */
 export async function applyBehavioralSignalsAction(
-  signals: string[]
+  signals: string[],
+  sessionId?: number | null
 ): Promise<FSLSMVectorResponse> {
   const headers = await getAuthHeaders();
+  // FIXED: Changed endpoint to /fslsm/signals to match active router
   const res = await fetch(`${BACKEND_URL}/api/v1/profile/fslsm/signals`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ signals }),
+    body: JSON.stringify({ signals, session_id: sessionId }),
   });
   if (!res.ok) throw new Error(`Failed to apply signals: ${await res.text()}`);
   return res.json();

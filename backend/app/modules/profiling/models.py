@@ -3,7 +3,6 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 
-
 class UserProfile(Base):
     __tablename__ = "user_profiles"
 
@@ -20,12 +19,6 @@ class UserProfile(Base):
     raw_scores = Column(JSON, default=dict)
 
     # ── FSLSM continuous vector system (Phase 1) ─────────────────────────────
-    # Range: -1.0 to +1.0, default 0.0 (neutral)
-    #
-    # fslsm_processing:    -1.0 = Active  |  +1.0 = Reflective
-    # fslsm_perception:    -1.0 = Sensing |  +1.0 = Intuitive
-    # fslsm_reception:     -1.0 = Visual  |  +1.0 = Verbal
-    # fslsm_understanding: -1.0 = Sequential | +1.0 = Global
     fslsm_processing    = Column(Float, default=0.0, nullable=False)
     fslsm_perception    = Column(Float, default=0.0, nullable=False)
     fslsm_reception     = Column(Float, default=0.0, nullable=False)
@@ -41,10 +34,21 @@ class UserProfile(Base):
 
     @property
     def fslsm_vectors(self) -> dict:
-        """Return FSLSM dimensions as a dict for use in adaptation engine."""
         return {
             "processing":    self.fslsm_processing,
             "perception":    self.fslsm_perception,
             "reception":     self.fslsm_reception,
             "understanding": self.fslsm_understanding,
         }
+
+class SessionEvent(Base):
+    __tablename__ = "session_events"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    session_id = Column(Integer, nullable=True) # Nullable if signal occurs outside a chat session
+    event_type = Column(String, nullable=False)
+    payload = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")

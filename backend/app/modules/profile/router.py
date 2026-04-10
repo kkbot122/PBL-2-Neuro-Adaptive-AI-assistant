@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.modules.auth.models import User
-from app.modules.profiling.models import UserProfile
+from app.modules.profiling.models import UserProfile, SessionEvent
 from app.modules.profile.schemas import (
     CalibrationRequest,
     ProfileResponse,
@@ -23,9 +23,10 @@ from app.services.fslsm import (
     DIMENSIONS,
 )
 from app.core.config import settings
+from pydantic import BaseModel
+from typing import List, Optional
 
 router = APIRouter()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Auth dependencies
@@ -104,16 +105,14 @@ def submit_calibration(
     profile.primary_archetype = result["primary_archetype"]
     profile.raw_scores = result["raw_scores"]
 
-    # Also seed FSLSM from calibration telemetry
     scores = result["raw_scores"]
     total = sum(scores.values()) or 1
-    # Map legacy scores to FSLSM reception and processing dimensions
     profile.fslsm_reception = round(
         ((scores.get("structural", 0) - scores.get("visual", 0)) / 50.0), 3
-    )  # more visual → negative (Visual pole)
+    )  
     profile.fslsm_processing = round(
         ((scores.get("logic", 0) - scores.get("active", 0)) / 50.0), 3
-    )  # more active → negative (Active pole)
+    )  
 
     db.commit()
     return {"status": "calibrated", "archetype": result["primary_archetype"]}
@@ -125,7 +124,6 @@ def override_archetype(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Allow user to manually override their assigned archetype."""
     profile = _get_or_create_profile(user, db)
     profile.primary_archetype = data.primary_archetype
     db.commit()
@@ -158,7 +156,6 @@ def get_fslsm_vector(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return the current FSLSM vector for the authenticated user."""
     profile = _get_or_create_profile(user, db)
     vec = profile.fslsm_vectors
     return FSLSMVectorResponse(
@@ -176,10 +173,6 @@ def nudge_fslsm_vector(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Apply delta nudges to the user's FSLSM vector.
-    All delta values are added to current values and clamped to [-1.0, +1.0].
-    """
     profile = _get_or_create_profile(user, db)
     current = profile.fslsm_vectors
     deltas = {
@@ -201,17 +194,24 @@ def nudge_fslsm_vector(
         labels=describe_vector(updated),
     )
 
+class SignalPayloadWithSession(BaseModel):
+    signals: List[str]
+    session_id: Optional[int] = None
 
 @router.post("/fslsm/signals", response_model=FSLSMVectorResponse)
 def apply_behavioral_signals(
-    data: BehavioralSignalsRequest,
+    data: SignalPayloadWithSession,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Convert a list of behavioral signal names into FSLSM nudges and apply them.
-    Unknown signal names are silently ignored.
-    """
+    # 1. Log the raw telemetry longitudinally to the DB
+    events = [
+        SessionEvent(user_id=user.id, session_id=data.session_id, event_type=sig)
+        for sig in data.signals
+    ]
+    db.add_all(events)
+
+    # 2. Update Vector Profile
     profile = _get_or_create_profile(user, db)
     current = profile.fslsm_vectors
     deltas = signals_to_deltas(data.signals)
@@ -234,7 +234,6 @@ def reset_fslsm_vector(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Reset the FSLSM vector to neutral (0.0) for all dimensions."""
     profile = _get_or_create_profile(user, db)
     profile.fslsm_processing    = 0.0
     profile.fslsm_perception    = 0.0
