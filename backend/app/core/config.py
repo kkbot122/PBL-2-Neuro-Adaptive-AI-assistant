@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     # Frontend URL (for CORS)
     FRONTEND_URL: str = "http://localhost:3000"
 
-    # Gemini
-    GEMINI_API_KEY: str = ""
+    # Groq
+    GROQ_API_KEY: str = ""
 
     model_config = ConfigDict(
         case_sensitive=True,

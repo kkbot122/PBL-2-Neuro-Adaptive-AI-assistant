@@ -8,6 +8,8 @@ from app.core.config import settings
 # Import model modules so Alembic can see them
 import app.modules.auth.models
 import app.modules.profiling.models
+import app.modules.content.models
+import app.modules.chat.models
 
 config = context.config
 

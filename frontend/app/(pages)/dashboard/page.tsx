@@ -10,6 +10,7 @@ import {
   Activity,
   User as UserIcon,
   Plus,
+  Clock,
 } from "lucide-react";
 
 // Helper to format "THE_VISUALIZER" into "Visualizer"
@@ -26,31 +27,54 @@ export default async function DashboardPage() {
     redirect("/signin");
   }
 
-  // 2. Fetch the user's profile securely
+  // 2. Fetch the user's profile and sessions securely
   const apiUrl =
     process.env.INTERNAL_API_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
     "http://backend:8000";
-  const res = await fetch(`${apiUrl}/api/v1/profile/me`, {
-    headers: {
-      "x-user-email": session.user.email,
-      "x-internal-token": process.env.INTERNAL_API_KEY as string,
-    },
-    cache: "no-store", // Ensure we always get the latest profile
-  });
+    
+  const commonHeaders = {
+    "x-user-email": session.user.email,
+    "x-internal-token": process.env.INTERNAL_API_KEY as string,
+  };
 
-  if (!res.ok) {
+  const [profileRes, sessionsRes] = await Promise.all([
+    fetch(`${apiUrl}/api/v1/profile/me`, { headers: commonHeaders, cache: "no-store" }),
+    fetch(`${apiUrl}/api/v1/chat/sessions`, { headers: commonHeaders, cache: "no-store" })
+  ]);
+
+  if (!profileRes.ok) {
     redirect("/mission");
   }
 
-  const profile = await res.json();
+  const profile = await profileRes.json();
   const raw = profile.raw_scores || {};
+  const recentSessions = sessionsRes.ok ? await sessionsRes.json() : [];
 
   // 3. Gatekeeper: If they have no scores, force them to calibrate!
   const isOnboarded =
     Object.keys(raw).length > 0 && Object.values(raw).some((v: any) => v > 0);
   if (!isOnboarded) {
     redirect("/mission");
+  }
+
+  // 4. Calculate Adaptive Score (magnitude of FSLSM vector tuning)
+  const vector = profile.fslsm || { processing: 0, perception: 0, reception: 0, understanding: 0 };
+  const paramsRaw = Object.values(vector) as number[];
+  // If baseline (0), magnitude is 0. If highly polarized (1), magnitude is 1.
+  const adaptationMagnitude = paramsRaw.reduce((acc, val) => acc + Math.abs(val), 0) / 4;
+  const adaptiveScore = Math.min(100, Math.round(50 + (adaptationMagnitude * 50) + (profile.learning_sessions_count * 2)));
+
+  let tuningStage = "Baseline";
+  let tuningColor = "bg-green-100 text-green-800";
+  if (adaptiveScore > 85) {
+    tuningStage = "Highly Specialized";
+    tuningColor = "bg-[#FF9F1C] text-black border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]";
+  } else if (adaptiveScore > 65) {
+    tuningStage = "Actively Adapted";
+    tuningColor = "bg-purple-200 text-purple-900 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]";
+  } else if (adaptiveScore > 50) {
+    tuningStage = "Tuning...";
   }
 
   return (
@@ -84,7 +108,6 @@ export default async function DashboardPage() {
             </span>
           </div>
 
-          {/* Server Action Sign Out Form */}
           <form
             action={async () => {
               "use server";
@@ -126,7 +149,6 @@ export default async function DashboardPage() {
             profile.
           </p>
 
-          {/* Use Next.js Link instead of useRouter for Server Components */}
           <Link
             href="/chat"
             className="w-fit mt-6 flex items-center gap-3 bg-[#FF9F1C] hover:bg-[#ff8c00] border-2 border-black px-6 py-3 rounded-xl font-bold text-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-x-1 active:translate-y-1 active:shadow-none"
@@ -145,7 +167,7 @@ export default async function DashboardPage() {
             <h3 className="text-gray-500 font-bold text-sm uppercase">
               Learning Sessions
             </h3>
-            <p className="text-4xl font-bold mt-1">1</p>
+            <p className="text-4xl font-bold mt-1 text-blue-600">{profile.learning_sessions_count}</p>
           </div>
 
           <div className="bg-white border-2 border-black rounded-xl p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-y-1">
@@ -155,21 +177,74 @@ export default async function DashboardPage() {
             <h3 className="text-gray-500 font-bold text-sm uppercase">
               Cognitive Profile
             </h3>
-            {/* Display the dynamically fetched archetype! */}
             <p className="text-3xl font-bold mt-1 tracking-tight truncate">
               {formatArchetype(profile.primary_archetype)}
             </p>
           </div>
 
-          <div className="bg-white border-2 border-black rounded-xl p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-y-1">
-            <div className="p-3 bg-green-100 border-2 border-black rounded-lg mb-4 w-fit">
+          <div className="bg-white border-2 border-black rounded-xl p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-y-1 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-green-200 rounded-bl-full -mr-10 -mt-10 opacity-50 transition-all group-hover:scale-110" />
+            
+            <div className="p-3 bg-green-100 border-2 border-black rounded-lg mb-4 w-fit relative z-10">
               <Activity className="w-6 h-6 text-green-600" />
             </div>
-            <h3 className="text-gray-500 font-bold text-sm uppercase">
-              Adaptive Score
+            
+            <h3 className="text-gray-500 font-bold text-sm uppercase relative z-10 w-full flex justify-between items-center pr-2">
+              <span>Adaptive Score</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider ${tuningColor}`}>
+                {tuningStage}
+              </span>
             </h3>
-            {/* We can use their total score or engagement time here later */}
-            <p className="text-4xl font-bold mt-1">94</p>
+            
+            <div className="flex items-end gap-2 mt-2 relative z-10">
+               <p className="text-4xl font-black">{adaptiveScore}</p>
+               <span className="text-sm font-bold text-gray-400 mb-1 tracking-widest">/ 100</span>
+            </div>
+            
+            <div className="w-full h-2 bg-gray-100 rounded-full border border-gray-300 mt-5 overflow-hidden relative z-10">
+               <div className="h-full bg-gradient-to-r from-green-400 via-purple-400 to-[#FF9F1C] transition-all duration-1000 ease-out" style={{ width: `${adaptiveScore}%` }} />
+            </div>
+          </div>
+        </div>
+
+        {/* RECENT MISSIONS SECTION */}
+        <div className="mt-16">
+          <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+            <div className="w-2 h-8 bg-purple-500 border-2 border-black" />
+            Neural Missions
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {recentSessions.length > 0 ? (
+              recentSessions.map((s: any) => (
+                <Link
+                  key={s.id}
+                  href={`/chat?sessionId=${s.id}`}
+                  className="bg-white border-2 border-black p-5 rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all flex items-center justify-between group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="p-2 bg-yellow-100 border-2 border-black rounded-lg">
+                      <Brain className="w-5 h-5 text-yellow-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-lg group-hover:underline underline-offset-4 truncate max-w-[200px]">
+                        {s.title}
+                      </h4>
+                      <p className="text-xs text-gray-400 font-bold uppercase flex items-center gap-1 mt-1">
+                        <Clock className="w-3 h-3" />
+                        {new Date(s.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  <Plus className="w-5 h-5 text-gray-300 group-hover:text-black group-hover:rotate-45 transition-all" />
+                </Link>
+              ))
+            ) : (
+              <div className="col-span-full bg-white border-2 border-black border-dashed p-10 rounded-2xl flex flex-col items-center justify-center opacity-50">
+                <Brain className="w-12 h-12 mb-4" />
+                <p className="font-bold">No Neural Missions started yet.</p>
+              </div>
+            )}
           </div>
         </div>
       </main>

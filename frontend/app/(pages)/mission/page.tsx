@@ -1,308 +1,310 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Brain, ChevronRight, CheckCircle2 } from "lucide-react";
 import { submitCalibration, overrideUserArchetype } from "./actions";
-import { useTrackVisibility } from "../../../hooks/useTrackVisibility";
-import { Brain, Zap, Target, Eye } from "lucide-react";
-import Image from "next/image";
-import { calibrationMission } from "./data";
+import {
+  SCENARIO_QUESTIONS,
+  MICRO_QUESTIONS,
+  AB_OPTIONS,
+  type Delta,
+} from "./data";
 
-// Dictionary to map backend keys to user-friendly UI details
-const ARCHETYPE_DETAILS: Record<
-  string,
-  { title: string; desc: string; color: string }
-> = {
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type Phase = "intro" | "scenario" | "micro" | "ab_test" | "reveal";
+type Dim = "visual" | "structural" | "active" | "logic";
+type Scores = Record<Dim, number>;
+type ArchetypeKey = "THE_VISUALIZER" | "THE_ARCHITECT" | "THE_SPRINTER" | "THE_DEBUGGER" | "THE_PIONEER";
+
+// ─── Static data ──────────────────────────────────────────────────────────────
+
+const ARCHETYPE_META: Record<ArchetypeKey, { title: string; desc: string; color: string }> = {
   THE_VISUALIZER: {
     title: "The Visualizer",
-    desc: "You learn best through images, spatial maps, and visual metaphors. You remember diagrams better than paragraphs.",
+    desc: "You think in pictures. Diagrams, maps, and spatial patterns are how ideas become real for you.",
     color: "bg-[#FFD6A5]",
   },
   THE_ARCHITECT: {
     title: "The Architect",
-    desc: "You need the big picture first. You learn top-down, grasping the overarching concepts before diving into the details.",
+    desc: "You need the blueprint before the bricks. You master the structure before diving into the details.",
     color: "bg-[#CBF3F0]",
   },
   THE_SPRINTER: {
     title: "The Sprinter",
-    desc: "You learn by doing. You prefer quick interactions, trial-and-error, and fast feedback over long reading sessions.",
+    desc: "You learn by doing. Trial, error, and fast feedback loops are how things actually click for you.",
     color: "bg-[#FF6B6B]",
   },
   THE_DEBUGGER: {
     title: "The Debugger",
-    desc: "You are highly logical and methodical. You need step-by-step details and prefer to understand the 'why' under the hood.",
+    desc: "You're methodical and precise. You need to understand the *why* at every single step.",
     color: "bg-[#9BF6FF]",
   },
+  THE_PIONEER: {
+    title: "The Pioneer",
+    desc: "You're balanced across all dimensions — highly adaptable with no strong single preference.",
+    color: "bg-[#C3B1E1]",
+  },
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const EMPTY_SCORES: Scores = { visual: 0, structural: 0, active: 0, logic: 0 };
+
+function applyDelta(scores: Scores, delta: Delta): Scores {
+  const next = { ...scores };
+  for (const [dim, val] of Object.entries(delta) as [Dim, number][]) {
+    next[dim] = (next[dim] ?? 0) + val;
+  }
+  return next;
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function ProgressBar({ current, total }: { current: number; total: number }) {
+  return (
+    <div className="w-full h-3 bg-white border-2 border-black rounded-full overflow-hidden mb-8 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+      <div
+        className="h-full bg-black transition-all duration-500"
+        style={{ width: `${(current / total) * 100}%` }}
+      />
+    </div>
+  );
+}
+
+function OptionCard({
+  text,
+  selected,
+  onClick,
+}: {
+  text: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left p-5 border-4 border-black rounded-2xl font-bold text-base transition-all flex items-center justify-between gap-4
+        ${selected
+          ? "bg-black text-white shadow-none translate-x-1 translate-y-1"
+          : "bg-white hover:bg-[#F4F1EA] shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none"
+        }`}
+    >
+      <span>{text}</span>
+      {selected && <CheckCircle2 className="w-5 h-5 flex-shrink-0" />}
+    </button>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function MissionPage() {
   const router = useRouter();
 
-  // Phase State: "intro" -> "read" -> "quiz" -> "reveal"
-  const [phase, setPhase] = useState<"intro" | "read" | "quiz" | "reveal">(
-    "intro",
-  );
+  const [phase, setPhase] = useState<Phase>("intro");
+  const [scenarioStep, setScenarioStep] = useState(0);
+  const [microStep, setMicroStep] = useState(0);
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [accumulatedScores, setAccumulatedScores] = useState<Scores>(EMPTY_SCORES);
+  const [abChoice, setAbChoice] = useState<"visual" | "logical" | "neutral">("neutral");
+  const [assignedArchetype, setAssignedArchetype] = useState<ArchetypeKey | null>(null);
+  const [showOverride, setShowOverride] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [assignedArchetype, setAssignedArchetype] = useState<string | null>(
-    null,
-  );
-  const [showOverrideOptions, setShowOverrideOptions] = useState(false);
 
-  // Telemetry Trackers
-  const textTracker = useTrackVisibility(0.5);
-  const diagramTracker = useTrackVisibility(0.5);
-  const summaryTracker = useTrackVisibility(0.5);
-  const startTime = useRef<number>(0);
-  const scrollCount = useRef(0);
-  const lastScrollY = useRef(0);
+  // Total steps across parts A + B for the progress bar
+  const TOTAL_STEPS = SCENARIO_QUESTIONS.length + MICRO_QUESTIONS.length + 1; // +1 for A/B
+  const currentStep =
+    phase === "scenario" ? scenarioStep :
+    phase === "micro"    ? SCENARIO_QUESTIONS.length + microStep :
+    phase === "ab_test"  ? SCENARIO_QUESTIONS.length + MICRO_QUESTIONS.length :
+    TOTAL_STEPS;
 
-  // User Interaction State
-  const [clickedDiagram, setClickedDiagram] = useState(false);
-  const [readSummaryFirst, setReadSummaryFirst] = useState(false);
-  const [scrolledErratically, setScrolledErratically] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
-  const [showDiagram, setShowDiagram] = useState(false);
-  const [answers, setAnswers] = useState({ q1: "", q2: "", q3: "" });
+  // ── Handlers ─────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    const handleScroll = () => {
-      // Only track erratic scrolling during the reading phase
-      if (phase !== "read") return;
+  function handleOptionSelect(idx: number) {
+    setSelectedOption(idx);
+  }
 
-      const currentScrollY = window.scrollY;
-      if (Math.abs(currentScrollY - lastScrollY.current) > 50)
-        scrollCount.current += 1;
-      lastScrollY.current = currentScrollY;
-      if (scrollCount.current > 15) setScrolledErratically(true);
-    };
+  function handleNext() {
+    if (selectedOption === null) return;
 
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [phase]);
+    if (phase === "scenario") {
+      const delta = SCENARIO_QUESTIONS[scenarioStep].options[selectedOption].delta;
+      const newScores = applyDelta(accumulatedScores, delta);
+      setAccumulatedScores(newScores);
+      setSelectedOption(null);
 
-  // --- TRANSITION HANDLERS ---
+      if (scenarioStep < SCENARIO_QUESTIONS.length - 1) {
+        setScenarioStep((s) => s + 1);
+      } else {
+        setPhase("micro");
+      }
+      return;
+    }
 
-  const startMission = () => {
-    // RESET AND START TIMERS ONLY WHEN THEY LEAVE THE INTRO!
-    startTime.current = Date.now();
-    scrollCount.current = 0;
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    setPhase("read");
-  };
+    if (phase === "micro") {
+      const delta = MICRO_QUESTIONS[microStep].options[selectedOption].delta;
+      const newScores = applyDelta(accumulatedScores, delta);
+      setAccumulatedScores(newScores);
+      setSelectedOption(null);
 
-  const startQuiz = () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    setPhase("quiz");
-  };
+      if (microStep < MICRO_QUESTIONS.length - 1) {
+        setMicroStep((s) => s + 1);
+      } else {
+        setPhase("ab_test");
+      }
+    }
+  }
 
-  // --- INTERACTION HANDLERS ---
-
-  const handleSummaryClick = () => {
-    if (Date.now() - startTime.current < 10000 && !showSummary)
-      setReadSummaryFirst(true);
-    setShowSummary(!showSummary);
-  };
-
-  const handleDiagramClick = () => {
-    setClickedDiagram(true);
-    setShowDiagram(!showDiagram);
-  };
-
-  const finishMission = async () => {
+  async function handleAbChoice(choice: "visual" | "logical") {
+    setAbChoice(choice);
     setIsSubmitting(true);
-    let score = 0;
 
-    // Dynamic Validation Check
-    const q1Correct =
-      answers.q1 === calibrationMission.quiz.questions[0].correctValue;
-    const q2Correct =
-      answers.q2 === calibrationMission.quiz.questions[1].correctValue;
-    const q3Correct =
-      answers.q3 === calibrationMission.quiz.questions[2].correctValue;
-
-    if (q1Correct) score++;
-    if (q2Correct) score++;
-    if (q3Correct) score++;
-
-    const payload = {
-      telemetry: {
-        clicked_diagram: clickedDiagram,
-        read_summary_first: readSummaryFirst,
-        time_spent_on_text: textTracker.secondsViewed,
-        time_spent_on_visuals: diagramTracker.secondsViewed,
-        time_spent_on_summary: summaryTracker.secondsViewed,
-        scrolled_erratically: scrolledErratically,
-      },
-      quiz_results: {
-        score: score,
-        // FIXED: Using the dynamically calculated booleans!
-        q1_correct: q1Correct,
-        q2_correct: q2Correct,
-        q3_correct: q3Correct,
-      },
-    };
-
-    const result = await submitCalibration(payload);
+    const result = await submitCalibration({
+      accumulated_scores: accumulatedScores,
+      ab_choice: choice,
+    });
 
     if (result.success && result.archetype) {
-      setAssignedArchetype(result.archetype);
+      setAssignedArchetype(result.archetype as ArchetypeKey);
       setPhase("reveal");
       window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
-      alert("Something went wrong saving your profile.");
+      alert("Something went wrong saving your profile. Please try again.");
     }
     setIsSubmitting(false);
-  };
+  }
 
-  const handleConfirmArchetype = () => {
-    router.push("/dashboard");
-  };
-
-  const handleOverride = async (newArchetype: string) => {
+  async function handleOverride(archetype: string) {
     setIsSubmitting(true);
-    const result = await overrideUserArchetype(newArchetype);
+    const result = await overrideUserArchetype(archetype);
     if (result.success) {
       router.push("/dashboard");
     } else {
-      alert("Failed to update archetype.");
+      alert("Failed to update. Please try again.");
       setIsSubmitting(false);
     }
-  };
+  }
 
-  // ==========================================
-  // RENDER: PHASE 1 - THE INTRO EXPLANATION
-  // ==========================================
+  // ── Render: Intro ─────────────────────────────────────────────────────────────
+
   if (phase === "intro") {
     return (
-      <div className="min-h-screen bg-[#F4F1EA] text-black font-[family-name:var(--font-kodchasan)] py-12 px-6 flex items-center justify-center">
-        <div className="max-w-3xl w-full">
-          <div className="mb-10 text-center">
-            <div className="inline-block bg-[#CBF3F0] border-2 border-black px-3 py-1 text-sm font-bold mb-6 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rotate-2">
-              Welcome to NeuroLearn
+      <div className="min-h-screen bg-[#F4F1EA] text-black font-[family-name:var(--font-kodchasan)] flex items-center justify-center px-6 py-16">
+        <div className="max-w-2xl w-full">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 bg-black text-white px-4 py-2 text-sm font-bold mb-8 border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,159,28,1)]">
+              <Brain className="w-4 h-4" />
+              Cognitive Calibration
             </div>
-            <h1 className="text-5xl md:text-6xl font-extrabold mb-6 leading-tight">
-              Before we begin, we need to{" "}
-              <span className="text-[#FF6B6B] underline decoration-wavy decoration-black">
-                map your brain.
+            <h1 className="text-5xl md:text-6xl font-black mb-6 leading-tight tracking-tight">
+              Let's map{" "}
+              <span className="underline decoration-[#FF9F1C] decoration-4">
+                how you think.
               </span>
             </h1>
-            <p className="text-xl font-medium text-gray-700 max-w-2xl mx-auto">
-              Everyone learns differently. Instead of asking you how you learn,
-              we prefer to see it in action.
+            <p className="text-lg font-medium text-gray-700 max-w-xl mx-auto">
+              Instead of asking how you learn, we observe the decisions you make.
+              8 quick scenarios. Under 3 minutes.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
-            <div className="bg-white border-2 border-black p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
-              <div className="w-12 h-12 bg-[#FF9F1C] border-2 border-black flex items-center justify-center mb-4">
-                <Target className="w-6 h-6" />
+          <div className="grid grid-cols-3 gap-4 mb-12">
+            {[
+              { label: "5 Scenarios", sub: "Real decisions, not opinions" },
+              { label: "2 Quick Picks", sub: "Format preferences" },
+              { label: "1 A/B Test", sub: "See what clicks for you" },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="bg-white border-4 border-black p-5 text-center shadow-[5px_5px_0px_0px_rgba(0,0,0,1)]"
+              >
+                <div className="text-xl font-black mb-1">{item.label}</div>
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  {item.sub}
+                </div>
               </div>
-              <h3 className="text-xl font-bold mb-2">1. The Sandbox</h3>
-              <p className="text-gray-600 font-medium">
-                We'll give you a 2-minute micro-lesson on a complex topic. Read
-                it however feels natural to you.
-              </p>
-            </div>
-            <div className="bg-white border-2 border-black p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
-              <div className="w-12 h-12 bg-[#9BF6FF] border-2 border-black flex items-center justify-center mb-4">
-                <Brain className="w-6 h-6" />
-              </div>
-              <h3 className="text-xl font-bold mb-2">2. The Analysis</h3>
-              <p className="text-gray-600 font-medium">
-                Our AI tracks your interactions—what you click, what you skip,
-                and where you focus your attention.
-              </p>
-            </div>
+            ))}
           </div>
 
-          <div className="bg-[#FFD6A5] border-4 border-black p-8 text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] relative overflow-hidden">
-            <div className="relative z-10">
-              <h2 className="text-2xl font-bold mb-2">
-                Ready to find your archetype?
-              </h2>
-              <p className="mb-6 font-medium">
-                Don't overthink the material. Just read naturally.
-              </p>
-              <button
-                onClick={startMission}
-                className="bg-black text-white border-2 border-black px-10 py-4 font-bold text-xl shadow-[4px_4px_0px_0px_rgba(255,255,255,1)] hover:translate-y-1 hover:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)] transition-all"
-              >
-                START CALIBRATION →
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={() => setPhase("scenario")}
+            className="w-full bg-black text-white border-4 border-black py-5 font-black text-xl shadow-[8px_8px_0px_0px_rgba(255,159,28,1)] hover:shadow-[4px_4px_0px_0px_rgba(255,159,28,1)] hover:translate-y-1 transition-all flex items-center justify-center gap-3"
+          >
+            START CALIBRATION
+            <ChevronRight className="w-6 h-6" strokeWidth={3} />
+          </button>
         </div>
       </div>
     );
   }
 
-  // ==========================================
-  // RENDER: PHASE 4 - REVEAL
-  // ==========================================
+  // ── Render: Reveal ────────────────────────────────────────────────────────────
+
   if (phase === "reveal" && assignedArchetype) {
-    const profile = ARCHETYPE_DETAILS[assignedArchetype];
+    const meta = ARCHETYPE_META[assignedArchetype] ?? ARCHETYPE_META.THE_PIONEER;
 
     return (
-      <div className="min-h-screen bg-[#F4F1EA] text-black font-[family-name:var(--font-kodchasan)] py-12 px-6 flex items-center justify-center">
+      <div className="min-h-screen bg-[#F4F1EA] text-black font-[family-name:var(--font-kodchasan)] flex items-center justify-center px-6 py-16">
         <div className="max-w-2xl w-full">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl md:text-5xl font-extrabold mb-4 leading-tight">
-              Calibration Complete!
+          <div className="text-center mb-10">
+            <div className="inline-block bg-black text-white px-4 py-1.5 text-sm font-bold mb-6 border-2 border-black">
+              CALIBRATION COMPLETE
+            </div>
+            <h1 className="text-4xl md:text-5xl font-black mb-3 leading-tight">
+              Your cognitive profile is ready.
             </h1>
-            <p className="text-xl font-medium text-gray-700">
-              Based on how you interacted with the material, we've identified
-              your learning style.
-            </p>
           </div>
 
           <div
-            className={`${profile.color} border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-10 mb-8 text-center`}
+            className={`${meta.color} border-4 border-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] p-10 mb-8 text-center`}
           >
-            <div className="text-sm font-bold tracking-widest uppercase mb-2">
-              Your Primary Archetype
+            <div className="text-xs font-black tracking-[0.2em] uppercase mb-3 opacity-60">
+              Primary Archetype
             </div>
-            <h2 className="text-5xl font-black mb-6">{profile.title}</h2>
-            <p className="text-xl font-medium">{profile.desc}</p>
+            <h2 className="text-5xl font-black mb-5">{meta.title}</h2>
+            <p className="text-lg font-semibold max-w-md mx-auto">{meta.desc}</p>
           </div>
 
-          {!showOverrideOptions ? (
+          {!showOverride ? (
             <div className="flex flex-col gap-4">
               <button
-                onClick={handleConfirmArchetype}
-                className="w-full bg-black text-white border-4 border-black px-6 py-4 font-bold text-xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:translate-y-1 hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all"
+                onClick={() => router.push("/dashboard")}
+                className="w-full bg-black text-white border-4 border-black py-5 font-black text-xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:translate-y-1 hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all"
               >
-                YES, THIS SOUNDS LIKE ME →
+                GO TO DASHBOARD →
               </button>
               <button
-                onClick={() => setShowOverrideOptions(true)}
-                className="w-full bg-transparent text-black border-4 border-black px-6 py-4 font-bold text-lg hover:bg-[#E5E2DC] transition-all"
+                onClick={() => setShowOverride(true)}
+                className="w-full bg-transparent border-4 border-black py-4 font-bold text-base hover:bg-white transition-all"
               >
-                Actually, let me choose manually
+                This doesn't feel right — let me pick manually
               </button>
             </div>
           ) : (
-            <div className="space-y-4 animate-fade-in">
-              <h3 className="text-xl font-bold mb-4">
-                Choose the style that fits you best:
-              </h3>
-              {Object.entries(ARCHETYPE_DETAILS).map(([key, data]) => (
-                <button
-                  key={key}
-                  onClick={() => handleOverride(key)}
-                  disabled={isSubmitting}
-                  className={`w-full text-left p-4 border-4 border-black ${data.color} shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-y-1 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all flex items-center justify-between disabled:opacity-50`}
-                >
-                  <div>
-                    <div className="font-bold text-xl">{data.title}</div>
-                    <div className="text-sm font-medium mt-1">{data.desc}</div>
-                  </div>
-                  {key === assignedArchetype && (
-                    <span className="bg-black text-white text-xs px-2 py-1 font-bold ml-4">
-                      AI SUGGESTION
-                    </span>
-                  )}
-                </button>
-              ))}
+            <div className="space-y-3">
+              <h3 className="font-black text-lg mb-4">Choose your archetype:</h3>
+              {(Object.entries(ARCHETYPE_META) as [ArchetypeKey, typeof ARCHETYPE_META[ArchetypeKey]][]).map(
+                ([key, data]) => (
+                  <button
+                    key={key}
+                    onClick={() => handleOverride(key)}
+                    disabled={isSubmitting}
+                    className={`w-full text-left p-4 border-4 border-black ${data.color} shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-y-1 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all disabled:opacity-50 flex items-center justify-between`}
+                  >
+                    <div>
+                      <div className="font-black text-lg">{data.title}</div>
+                      <div className="text-sm font-medium mt-0.5 opacity-70">{data.desc}</div>
+                    </div>
+                    {key === assignedArchetype && (
+                      <span className="bg-black text-white text-[10px] px-2 py-1 font-black ml-4 flex-shrink-0">
+                        AI PICK
+                      </span>
+                    )}
+                  </button>
+                )
+              )}
             </div>
           )}
         </div>
@@ -310,152 +312,106 @@ export default function MissionPage() {
     );
   }
 
-  // ==========================================
-  // RENDER: PHASES 2 & 3 - READ & QUIZ
-  // ==========================================
-  return (
-    <div className="min-h-screen bg-[#F4F1EA] text-black font-[family-name:var(--font-kodchasan)] py-12 px-6">
-      <div className="max-w-3xl mx-auto">
-        <div className="mb-10">
-          <div className="inline-block bg-[#FF9F1C] border-2 border-black px-3 py-1 text-sm font-bold mb-4 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] -rotate-2">
-            {/* FIXED: Dynamic Tag */}
-            {calibrationMission.tag}
+  // ── Render: A/B Test ──────────────────────────────────────────────────────────
+
+  if (phase === "ab_test") {
+    return (
+      <div className="min-h-screen bg-[#F4F1EA] text-black font-[family-name:var(--font-kodchasan)] px-6 py-12">
+        <div className="max-w-3xl mx-auto">
+          <ProgressBar current={currentStep} total={TOTAL_STEPS} />
+
+          <div className="mb-2">
+            <span className="text-xs font-black tracking-widest uppercase text-gray-400">
+              Final check
+            </span>
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold mb-4 leading-tight">
-            {/* FIXED: Dynamic Title */}
-            {phase === "quiz" ? "Mission Assessment" : calibrationMission.title}
-          </h1>
-          <p className="text-xl font-medium text-gray-700">
-            {/* FIXED: Dynamic Subtitle */}
-            {phase === "quiz"
-              ? "Let's see what you retained from the material."
-              : calibrationMission.subtitle}
+          <h2 className="text-2xl md:text-3xl font-black mb-3 leading-tight">
+            You're learning about recursion. Which explanation clicked for you?
+          </h2>
+          <p className="text-sm font-semibold text-gray-500 mb-10">
+            Don't overthink it — go with your gut.
           </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            {AB_OPTIONS.map((opt) => (
+              <div
+                key={opt.type}
+                className="bg-white border-4 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-6 flex flex-col"
+              >
+                <div className="text-xs font-black tracking-widest uppercase mb-4 opacity-50">
+                  {opt.label}
+                </div>
+                <pre className="font-mono text-sm leading-relaxed bg-[#F4F1EA] border-2 border-black p-4 flex-1 whitespace-pre overflow-x-auto">
+                  {opt.content}
+                </pre>
+                <button
+                  onClick={() => !isSubmitting && handleAbChoice(opt.type)}
+                  disabled={isSubmitting}
+                  className="mt-6 w-full bg-black text-white border-2 border-black py-3 font-black text-sm shadow-[4px_4px_0px_0px_rgba(255,159,28,1)] hover:shadow-[2px_2px_0px_0px_rgba(255,159,28,1)] hover:translate-y-1 transition-all disabled:opacity-50"
+                >
+                  {isSubmitting ? "ANALYZING..." : "THIS ONE MADE MORE SENSE →"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Render: Scenario + Micro Questions ────────────────────────────────────────
+
+  const isScenario = phase === "scenario";
+  const questions = isScenario ? SCENARIO_QUESTIONS : MICRO_QUESTIONS;
+  const step = isScenario ? scenarioStep : microStep;
+  const currentQuestion = questions[step];
+
+  return (
+    <div className="min-h-screen bg-[#F4F1EA] text-black font-[family-name:var(--font-kodchasan)] px-6 py-12">
+      <div className="max-w-2xl mx-auto">
+        <ProgressBar current={currentStep + 1} total={TOTAL_STEPS} />
+
+        <div className="mb-2">
+          <span className="text-xs font-black tracking-widest uppercase text-gray-400">
+            {isScenario
+              ? `Scenario ${scenarioStep + 1} of ${SCENARIO_QUESTIONS.length}`
+              : `Quick check ${microStep + 1} of ${MICRO_QUESTIONS.length}`}
+          </span>
         </div>
 
-        {phase === "read" && (
-          <div className="space-y-8">
-            {/* The Summary Tool */}
-            <div>
-              <button
-                onClick={handleSummaryClick}
-                className="bg-[#CBF3F0] border-2 border-black px-6 py-3 font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-y-1 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all"
-              >
-                {showSummary ? "HIDE SUMMARY" : "VIEW QUICK SUMMARY"}
-              </button>
-              {showSummary && (
-                <div
-                  ref={summaryTracker.elementRef}
-                  className="mt-6 p-6 bg-white border-2 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] text-lg font-medium"
-                >
-                  <span className="bg-[#FF9F1C] border border-black px-2 py-0.5 text-sm font-bold mr-2">
-                    {calibrationMission.summary.label}
-                  </span>
-                  {calibrationMission.summary.text}
-                </div>
-              )}
-            </div>
+        <h2 className="text-2xl md:text-3xl font-black mb-10 leading-tight">
+          {currentQuestion.question}
+        </h2>
 
-            {/* The Text Box */}
-            <div
-              ref={textTracker.elementRef}
-              className="bg-white border-2 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-8 md:p-10 text-lg leading-relaxed font-medium"
-            >
-              {calibrationMission.content.paragraphs.map((para, idx) => (
-                <p
-                  key={idx}
-                  className={
-                    idx !== calibrationMission.content.paragraphs.length - 1
-                      ? "mb-6"
-                      : ""
-                  }
-                >
-                  {para}
-                </p>
-              ))}
-            </div>
+        <div className="flex flex-col gap-4 mb-12">
+          {currentQuestion.options.map((opt, idx) => (
+            <OptionCard
+              key={idx}
+              text={opt.text}
+              selected={selectedOption === idx}
+              onClick={() => handleOptionSelect(idx)}
+            />
+          ))}
+        </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <button
-                  onClick={handleDiagramClick}
-                  className="w-full bg-[#FFD6A5] border-2 border-black px-6 py-3 font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-y-1 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all flex items-center justify-center gap-2"
-                >
-                  <Eye className="w-5 h-5" />
-                  {showDiagram ? "HIDE DIAGRAM" : "VIEW DIAGRAM"}
-                </button>
-                {showDiagram && (
-                  <div
-                    ref={diagramTracker.elementRef}
-                    className="mt-4 p-4 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col items-center justify-center"
-                  >
-                    <div className="relative w-full h-48 mb-4 bg-gray-900 rounded border-2 border-black overflow-hidden flex items-center justify-center">
-                      <Image
-                        src={calibrationMission.visual.src}
-                        alt={calibrationMission.visual.alt}
-                        fill
-                        className="object-contain p-4"
-                      />
-                    </div>
-                    <span className="text-black font-bold text-sm text-center">
-                      {calibrationMission.visual.caption}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div>
-                <button
-                  onClick={startQuiz}
-                  className="w-full bg-[#FF6B6B] border-2 border-black px-6 py-3 font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-y-1 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-y-2 active:shadow-none"
-                >
-                  I'M READY. START QUIZ →
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {phase === "quiz" && (
-          <div className="bg-white border-2 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-8 md:p-10 space-y-8">
-            {calibrationMission.quiz.questions.map((q) => {
-              const answerKey = q.id as keyof typeof answers;
-
-              return (
-                <div key={q.id}>
-                  <label className="block font-bold text-lg mb-2">
-                    {q.label}
-                  </label>
-                  <select
-                    className="w-full border-2 border-black p-4 bg-gray-50 font-medium"
-                    value={answers[answerKey]}
-                    onChange={(e) =>
-                      setAnswers({ ...answers, [answerKey]: e.target.value })
-                    }
-                  >
-                    <option value="">Select an answer...</option>
-                    {q.options.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.text}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              );
-            })}
-
-            <div className="pt-8 border-t-4 border-black flex justify-end">
-              <button
-                onClick={finishMission}
-                disabled={
-                  isSubmitting || !answers.q1 || !answers.q2 || !answers.q3
-                }
-                className="bg-black text-white border-2 border-black px-10 py-4 font-bold text-xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:translate-y-1 hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all disabled:opacity-50"
-              >
-                {isSubmitting ? "ANALYZING..." : "REVEAL MY PROFILE →"}
-              </button>
-            </div>
-          </div>
-        )}
+        <div className="flex justify-end">
+          <button
+            onClick={handleNext}
+            disabled={selectedOption === null}
+            className={`flex items-center gap-3 px-8 py-4 border-4 border-black font-black text-lg transition-all
+              ${selectedOption === null
+                ? "bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed"
+                : "bg-[#FF9F1C] shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:translate-y-1 active:translate-y-2 active:shadow-none"
+              }`}
+          >
+            {isScenario && scenarioStep === SCENARIO_QUESTIONS.length - 1
+              ? "QUICK CHECKS"
+              : !isScenario && microStep === MICRO_QUESTIONS.length - 1
+              ? "FINAL TEST"
+              : "NEXT"}
+            <ChevronRight className="w-5 h-5" strokeWidth={3} />
+          </button>
+        </div>
       </div>
     </div>
   );

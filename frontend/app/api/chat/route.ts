@@ -9,16 +9,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const formData = await req.formData();
-    
-    // We already have formData containing "prompt" and "file".
-    // We forward this to the FastAPI backend.
-    
+    const incoming = await req.formData();
+
+    // Explicitly extract and reconstruct FormData to avoid forwarding issues
+    // where the raw FormData object from req.formData() may not serialize
+    // correctly when passed as body to a new fetch() call.
+    const prompt = (incoming.get("prompt") as string | null) ?? "";
+    const sessionId = incoming.get("session_id") as string | null;
+    const file = incoming.get("file") as File | null;
+
+    const backendFormData = new FormData();
+    backendFormData.append("prompt", prompt);
+    if (sessionId) backendFormData.append("session_id", sessionId);
+    if (file && file.size > 0) backendFormData.append("file", file, file.name);
+
     const apiUrl =
       process.env.INTERNAL_API_URL ||
       process.env.NEXT_PUBLIC_API_URL ||
       "http://backend:8000";
-      
+
     const internalKey = process.env.INTERNAL_API_KEY;
 
     if (!internalKey) {
@@ -30,9 +39,9 @@ export async function POST(req: NextRequest) {
       headers: {
         "x-user-email": session.user.email,
         "x-internal-token": internalKey,
-        // Let fetch automatically set the Content-Type to multipart/form-data with boundary
+        // Content-Type set automatically by fetch when body is FormData
       },
-      body: formData,
+      body: backendFormData,
     });
 
     if (!response.ok) {

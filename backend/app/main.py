@@ -9,6 +9,7 @@ from app.db.base import Base
 from app.modules.auth import models as auth_models
 from app.modules.content import models as content_models
 from app.modules.profiling import models as profiling_models
+from app.modules.chat import models as chat_models
 
 # --- Import Routers ---
 from app.modules.auth.router import router as auth_router
