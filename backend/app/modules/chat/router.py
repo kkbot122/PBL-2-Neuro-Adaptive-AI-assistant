@@ -26,6 +26,23 @@ client = AsyncOpenAI(
 )
 
 
+def _sanitize(text: str) -> str:
+    """
+    Strip lone Unicode surrogates (U+D800–U+DFFF) that break UTF-8 encoding.
+    These appear when Groq returns mathematical bold/italic Unicode
+    (e.g. U+1D4N series) and the JSON parser creates an unpaired surrogate.
+    encode('utf-8', errors='replace') replaces each lone surrogate with U+FFFD.
+    """
+    if not isinstance(text, str):
+        return ""
+    return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
+def _db_role_to_api_role(role: str) -> str:
+    """Map internal DB role ('bot') to OpenAI-compatible API role ('assistant')."""
+    return "assistant" if role == "bot" else role
+
+
 async def get_current_user_chat(
     x_user_email: str = Header(...),
     x_internal_token: str = Header(...),
@@ -148,10 +165,14 @@ async def send_message(
 
     messages_for_llm: list[dict] = [{"role": "system", "content": system_prompt}]
     for h in history:
-        messages_for_llm.append({"role": h.role, "content": h.content})
+        # DB stores bot messages with role="bot"; Groq requires "assistant"
+        messages_for_llm.append({
+            "role": _db_role_to_api_role(h.role),
+            "content": _sanitize(h.content),
+        })
 
     # ── 4. Process file attachment if present ────────────────────────────────
-    user_content = prompt
+    user_content = _sanitize(prompt)
 
     if file and file.filename:
         raw_bytes = await file.read()
@@ -188,16 +209,27 @@ async def send_message(
             temperature=0.7,
             max_tokens=2048,
         )
-        bot_text: str = response.choices[0].message.content
+        bot_text: str = _sanitize(response.choices[0].message.content or "")
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"LLM call failed: {exc}"
         )
 
     # ── 6. Persist messages ──────────────────────────────────────────────────
-    user_msg = ChatMessage(session_id=chat_session.id, role="user", content=prompt)
+    user_msg = ChatMessage(session_id=chat_session.id, role="user", content=_sanitize(prompt))
     bot_msg = ChatMessage(session_id=chat_session.id, role="bot", content=bot_text)
     db.add_all([user_msg, bot_msg])
+
+    # ── 7. Behavioral signal inference → update raw_scores ───────────────────
+    # Infer signals from the user's prompt and apply micro-deltas to their
+    # cognitive profile so the adaptation engine evolves over time.
+    if profile:
+        signals = infer_signals_from_prompt(prompt)
+        if signals:
+            current_scores = dict(profile.raw_scores or {})
+            updated_scores = apply_signals_to_scores(current_scores, signals)
+            profile.raw_scores = updated_scores
+
     db.commit()
 
     return {"text": bot_text, "session_id": chat_session.id}

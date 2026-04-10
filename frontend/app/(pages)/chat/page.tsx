@@ -34,6 +34,8 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasSentFeedback = useRef(false);
+  // Ref mirror of currentSessionId so async callbacks always read the latest value
+  const currentSessionIdRef = useRef<number | null>(null);
 
   // ─────────────────────────────────────────────────────
   // PHASE 0 FIX: Scroll helper
@@ -46,20 +48,28 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages, isLoading, scrollToBottom]);
 
+  // Keep ref in sync with state so async callbacks always have the latest session ID
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId;
+  }, [currentSessionId]);
+
   // ─────────────────────────────────────────────────────
-  // PHASE 0 FIX: Unified initialization
-  // Runs once on mount. Detects quiz_done, restores session, sets pending feedback.
+  // Unified initialization: runs once on mount.
+  // Detects quiz_done, restores session ID, sets pending feedback.
   // ─────────────────────────────────────────────────────
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sidFromUrl = params.get("sessionId");
     const quizDone = params.get("quiz_done") === "true";
 
-    // Restore session ID: from URL or from sessionStorage (quiz flow)
-    const savedSessionId = sidFromUrl ?? (quizDone ? sessionStorage.getItem("chat_session_id") : null);
+    // Prefer URL param (most reliable); fall back to sessionStorage only if no URL param
+    const rawId = sidFromUrl ?? (quizDone ? sessionStorage.getItem("chat_session_id") : null);
+    const parsedId = rawId ? parseInt(rawId, 10) : NaN;
 
-    if (savedSessionId) {
-      setCurrentSessionId(parseInt(savedSessionId, 10));
+    // Guard against parseInt("") = NaN or other invalid values
+    if (!isNaN(parsedId)) {
+      setCurrentSessionId(parsedId);
+      currentSessionIdRef.current = parsedId;
     }
 
     if (quizDone) {
@@ -78,14 +88,12 @@ export default function ChatPage() {
             `Please give me a structured learning plan for improving my weak areas.`;
           setPendingFeedback(msg);
         } catch {
-          // silently ignore
+          // silently ignore malformed JSON
         }
       }
 
-      // Clean up URL while preserving session ID
-      const cleanUrl = savedSessionId
-        ? `/chat?sessionId=${savedSessionId}`
-        : "/chat";
+      // Clean URL: drop quiz_done param, keep sessionId
+      const cleanUrl = !isNaN(parsedId) ? `/chat?sessionId=${parsedId}` : "/chat";
       window.history.replaceState({}, "", cleanUrl);
     }
   }, []);
@@ -130,8 +138,11 @@ export default function ChatPage() {
 
       const formData = new FormData();
       formData.append("prompt", userMessage);
-      if (currentSessionId) {
-        formData.append("session_id", currentSessionId.toString());
+      // Read from ref to always get the latest session ID,
+      // even if this callback was captured in a stale closure.
+      const sid = currentSessionIdRef.current;
+      if (sid) {
+        formData.append("session_id", sid.toString());
       }
       if (selectedFile) {
         formData.append("file", selectedFile);
@@ -148,10 +159,10 @@ export default function ChatPage() {
           const data = await response.json();
           setMessages((prev) => [...prev, { role: "bot", content: data.text }]);
 
-          if (data.session_id && data.session_id !== currentSessionId) {
+          if (data.session_id && data.session_id !== currentSessionIdRef.current) {
             setCurrentSessionId(data.session_id);
+            currentSessionIdRef.current = data.session_id;
             window.history.replaceState({}, "", `/chat?sessionId=${data.session_id}`);
-            // Persist for quiz flow
             sessionStorage.setItem("chat_session_id", data.session_id.toString());
           }
         } else {
@@ -427,7 +438,7 @@ export default function ChatPage() {
               ref={fileInputRef}
               onChange={handleFileSelect}
               className="hidden"
-              accept=".pdf,.doc,.docx,.txt,image/*"
+              accept=".pdf,.txt,.md,.csv"
             />
 
             <button

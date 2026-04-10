@@ -367,10 +367,20 @@ def reinforce_scores_from_effectiveness(
 QUIZ_INSTRUCTIONS = """
 
 ━━━ ADAPTIVE QUIZ GENERATION PROTOCOL ━━━
-When the learner has engaged with a topic and you judge them ready for assessment, generate a quiz.
 
-RULES:
-• Generate exactly 5 to 7 MCQ questions per quiz — never fewer.
+WHEN TO GENERATE A QUIZ — all three conditions must be met:
+1. The learner has asked at least 3 substantive questions about a specific topic in this session.
+2. You have explained the topic in meaningful depth across multiple messages.
+3. The learner explicitly asks to be tested, OR the conversation has clearly reached a natural review point.
+
+NEVER generate a quiz:
+• On greetings, small talk, or first messages ("hello", "hi", "what can you do").
+• After only 1–2 exchanges.
+• When the learner is still asking clarifying questions.
+• When the learner has not yet demonstrated understanding of the topic.
+
+QUIZ RULES (when generation is appropriate):
+• Generate exactly 5 to 7 MCQ questions — never fewer.
 • Distribute difficulty: ~2 easy (recall), ~2 medium (application), ~1-2 hard (analysis/synthesis).
 • Each question must test a DISTINCT concept or sub-topic (no repeats).
 • Include ONE question that tests visual/spatial reasoning if the topic allows.

@@ -82,7 +82,13 @@ export default function QuizPage() {
       total: results.total,
       missed_topics: results.missedTopics
     }));
-    router.push("/chat?quiz_done=true");
+    // Include session ID in URL so chat page restores the correct session
+    // (avoids relying solely on sessionStorage which can be lost)
+    const savedSessionId = sessionStorage.getItem("chat_session_id");
+    const returnUrl = savedSessionId
+      ? `/chat?quiz_done=true&sessionId=${savedSessionId}`
+      : "/chat?quiz_done=true";
+    router.push(returnUrl);
   };
 
   if (showResults) {

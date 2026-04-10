@@ -10,6 +10,7 @@ from app.modules.profile.schemas import (
     FSLSMVectorResponse,
     FSLSMNudgeRequest,
     BehavioralSignalsRequest,
+    ArchetypeOverrideRequest,
 )
 from app.modules.auth.schemas import ProfileUpdate
 from app.modules.profile.service import calculate_profile
@@ -116,6 +117,19 @@ def submit_calibration(
 
     db.commit()
     return {"status": "calibrated", "archetype": result["primary_archetype"]}
+
+
+@router.patch("/override")
+def override_archetype(
+    data: ArchetypeOverrideRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Allow user to manually override their assigned archetype."""
+    profile = _get_or_create_profile(user, db)
+    profile.primary_archetype = data.primary_archetype
+    db.commit()
+    return {"status": "overridden", "archetype": profile.primary_archetype}
 
 
 @router.post("/update", dependencies=[Depends(verify_internal_api_key)])
