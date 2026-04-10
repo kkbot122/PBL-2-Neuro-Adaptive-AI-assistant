@@ -11,6 +11,8 @@ from app.services.adaptation import (
     build_fslsm_system_prompt,
     archetype_to_scores,
     QUIZ_INSTRUCTIONS,
+    infer_signals_from_prompt,
+    apply_signals_to_scores,
 )
 from app.modules.profiling.models import UserProfile
 from app.modules.chat.models import ChatSession, ChatMessage

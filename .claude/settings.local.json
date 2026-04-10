@@ -3,7 +3,10 @@
     "allow": [
       "Bash(find /d/PBL-2-Neuro-Adaptive-AI-assistant/backend -name \"*.py\" -exec grep -l \"override\" {} \\\\;)",
       "Bash(npm install:*)",
-      "Bash(node -e \"require\\('react-markdown'\\)\")"
+      "Bash(node -e \"require\\('react-markdown'\\)\")",
+      "Bash(alembic current:*)",
+      "Bash(python -m alembic current)",
+      "Bash(docker compose:*)"
     ]
   }
 }

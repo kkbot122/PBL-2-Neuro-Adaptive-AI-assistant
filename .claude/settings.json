@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker exec:*)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/)",
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/chat/message -H 'x-user-email: test@test.com' -H 'x-internal-token: __CMDSUB_OUTPUT__' -F prompt=hello)",
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/chat/message -H 'x-user-email: harsh.ledwani.btech2023@sitpune.edu.in' -H 'x-internal-token: __TRACKED_VAR__' -F prompt=hello)"
+    ]
+  }
+}

@@ -1,4 +1,16 @@
+"""
+Neuro-Adaptive Learning Engine
+================================
+Continuous vector-driven personalization. No archetypes. No labels.
+No hardcoded if/else trees for personalization logic.
+
+All adaptation is computed via weighted dot-products, soft scaling (tanh),
+and ranked directive selection — analogous to a recommendation score.
+"""
+
+import math
 import os
+from typing import NamedTuple
 from openai import AsyncOpenAI
 
 client = AsyncOpenAI(
@@ -6,150 +18,351 @@ client = AsyncOpenAI(
     api_key=os.getenv("GROQ_API_KEY"),
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# FSLSM vector → system prompt (Phase 3)
-# Dimensions: processing, perception, reception, understanding
-# Range: -1.0 to +1.0, default 0.0
-# ─────────────────────────────────────────────────────────────────────────────
 
-FSLSM_THRESHOLD = 0.3
+# ─── 1. VECTOR NORMALIZATION ──────────────────────────────────────────────────
+# raw_scores: {visual, structural, active, logic} ∈ [0, 100]
+# Normalized to [-1, +1], then soft-scaled via tanh to compress extremes.
+
+def _norm(v: float) -> float:
+    """Map [0, 100] → [-1, +1] linearly. Clamps input to valid range."""
+    return (max(0.0, min(100.0, v)) / 50.0) - 1.0
+
+
+def _soft(x: float, k: float = 2.0) -> float:
+    """Soft-scale via tanh: preserves sign, compresses extremes toward ±1."""
+    return math.tanh(k * x)
+
+
+def normalize_profile(raw: dict) -> dict:
+    """Convert raw_scores dict to soft-normalized cognitive vector [-1, +1]."""
+    return {
+        dim: _soft(_norm(raw.get(dim, 50.0)))
+        for dim in ("visual", "structural", "active", "logic")
+    }
+
+
+# ─── 2. DIRECTIVE LIBRARY ────────────────────────────────────────────────────
+# Each Directive has: a compressed instruction string + a weights dict.
+# weights = {dimension: affinity} where +1.0 means "use when dim is high",
+# -1.0 means "use when dim is low".
+#
+# Selection: relevance = dot(directive.weights, profile)
+# Directives with relevance > GATE_THRESHOLD are included (soft gate).
+
+GATE_THRESHOLD = 0.25  # tune between 0.15–0.40
+
+
+class Directive(NamedTuple):
+    text: str
+    weights: dict  # {dimension: affinity_float}
+
+
+# Raw-score directives (used when FSLSM vectors are neutral)
+RAW_DIRECTIVES: list[Directive] = [
+    Directive(
+        "ASCII diagrams, comparison tables, spatial analogies.",
+        {"visual": +1.0},
+    ),
+    Directive(
+        "Dense precise text; skip decorative visuals.",
+        {"visual": -1.0},
+    ),
+    Directive(
+        "Open with executive overview, then drill into detail.",
+        {"structural": +1.0},
+    ),
+    Directive(
+        "Lead with specifics; no preamble or broad intro.",
+        {"structural": -1.0},
+    ),
+    Directive(
+        "Number every reasoning step; include formulas and code.",
+        {"logic": +1.0, "structural": +0.3},
+    ),
+    Directive(
+        "End with a hands-on task or Socratic question.",
+        {"active": +1.0},
+    ),
+    Directive(
+        "Worked examples with intermediate steps shown.",
+        {"active": +0.6, "logic": +0.4},
+    ),
+    Directive(
+        "Real-world analogies and concrete connections.",
+        {"visual": +0.4, "structural": +0.4},
+    ),
+]
+
+# FSLSM directives (used when FSLSM vectors have meaningful signal)
+FSLSM_DIRECTIVES: list[Directive] = [
+    Directive(
+        "Theoretical depth, multiple perspectives, reflective summaries.",
+        {"processing": +1.0},
+    ),
+    Directive(
+        "Immediate hands-on exercises; avoid lengthy theory blocks.",
+        {"processing": -1.0},
+    ),
+    Directive(
+        "Real data, established facts, concrete procedures.",
+        {"perception": -1.0},
+    ),
+    Directive(
+        "Highlight patterns, relationships, conceptual 'why'.",
+        {"perception": +1.0},
+    ),
+    Directive(
+        "ASCII diagrams, comparison grids, spatial layout.",
+        {"reception": -1.0},
+    ),
+    Directive(
+        "Rich annotated written explanations over visual gimmicks.",
+        {"reception": +1.0},
+    ),
+    Directive(
+        "Strict linear steps; fully master each before the next.",
+        {"understanding": -1.0},
+    ),
+    Directive(
+        "Open with the big picture; show how pieces connect to the whole.",
+        {"understanding": +1.0},
+    ),
+]
+
+
+def _directive_score(d: Directive, profile: dict) -> float:
+    """Continuous relevance: dot product of directive weights with user profile."""
+    return sum(profile.get(dim, 0.0) * w for dim, w in d.weights.items())
+
+
+def select_directives(
+    profile: dict,
+    library: list[Directive],
+    max_n: int = 3,
+) -> list[str]:
+    """
+    Rank directives by relevance score (dot product), apply soft gate,
+    return top-N instruction strings. No hard branching.
+    """
+    scored = sorted(
+        [(d, _directive_score(d, profile)) for d in library],
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    active = [d.text for d, score in scored if score > GATE_THRESHOLD]
+    if not active:
+        return ["Balance structure with depth; mix text with clarity."]
+    return active[:max_n]
+
+
+# ─── 3. PROMPT GENERATORS ────────────────────────────────────────────────────
+# Targets ~80–110 tokens per system prompt. No redundant phrasing.
+
+_FORMAT_RULES = (
+    "Rules: ## headings, **bold** terms, `code` literals, "
+    "bullet lists ≤4/para, fenced ```lang blocks. "
+    "Structure: hook→content→summary. "
+    "Tone: precise, encouraging. Adapt silently."
+)
+
+
+def generate_system_prompt(raw_scores: dict) -> str:
+    """
+    Token-efficient prompt from continuous raw_scores [0, 100].
+    Uses weighted directive selection — no if/else personalization.
+    """
+    profile = normalize_profile(raw_scores)
+    directives = select_directives(profile, RAW_DIRECTIVES)
+    style = " ".join(directives)
+    return (
+        f"You are a Neuro-Adaptive Learning Assistant.\n"
+        f"Learner style: {style}\n"
+        f"{_FORMAT_RULES}"
+    )
 
 
 def build_fslsm_system_prompt(vectors: dict) -> str:
-    processing = float(vectors.get("processing", 0.0))   # -1=active, +1=reflective
-    perception = float(vectors.get("perception", 0.0))   # -1=sensing, +1=intuitive
-    reception = float(vectors.get("reception", 0.0))     # -1=visual, +1=verbal
-    understanding = float(vectors.get("understanding", 0.0))  # -1=sequential, +1=global
+    """
+    Generate prompt from FSLSM continuous vectors [-1, +1].
+    Applies light soft-scaling (k=1.5) since vectors are already normalized.
+    """
+    profile = {dim: _soft(float(v), k=1.5) for dim, v in vectors.items()}
+    directives = select_directives(profile, FSLSM_DIRECTIVES)
+    style = " ".join(directives)
+    return (
+        f"You are a Neuro-Adaptive Learning Assistant (FSLSM-calibrated).\n"
+        f"Learner style: {style}\n"
+        f"{_FORMAT_RULES}"
+    )
 
-    lines = [
-        "You are a Neuro-Adaptive Learning Assistant powered by the Felder-Silverman Learning Style Model (FSLSM).",
-        "Your responses are scientifically tailored to this learner's cognitive profile.",
-        "",
-        "━━━ LEARNER FSLSM PROFILE ━━━",
-    ]
-
-    # Processing dimension
-    if processing < -FSLSM_THRESHOLD:
-        lines.append(
-            "• PROCESSING: ACTIVE LEARNER — Provide concrete exercises, worked examples, "
-            "and mini-tasks the learner can try immediately. Avoid lengthy theory blocks."
-        )
-    elif processing > FSLSM_THRESHOLD:
-        lines.append(
-            "• PROCESSING: REFLECTIVE LEARNER — Allow time for contemplation. "
-            "Include theoretical depth, multiple perspectives, and summary at the end."
-        )
-    else:
-        lines.append("• PROCESSING: BALANCED — Mix hands-on examples with conceptual explanation.")
-
-    # Perception dimension
-    if perception < -FSLSM_THRESHOLD:
-        lines.append(
-            "• PERCEPTION: SENSING LEARNER — Ground every concept in real-world facts, "
-            "data, and established procedures. Minimize abstract speculation."
-        )
-    elif perception > FSLSM_THRESHOLD:
-        lines.append(
-            "• PERCEPTION: INTUITIVE LEARNER — Highlight patterns, relationships, theories, "
-            "and conceptual connections. Spark curiosity with the 'why'."
-        )
-    else:
-        lines.append("• PERCEPTION: BALANCED — Anchor concepts in reality while connecting to broader patterns.")
-
-    # Reception dimension
-    if reception < -FSLSM_THRESHOLD:
-        lines.append(
-            "• RECEPTION: VISUAL LEARNER — Use ASCII/text diagrams, tables, comparison grids, "
-            "and spatial metaphors. Break text into visual chunks."
-        )
-    elif reception > FSLSM_THRESHOLD:
-        lines.append(
-            "• RECEPTION: VERBAL LEARNER — Detailed written explanations, rich descriptions, "
-            "and annotated summaries are preferred over visual gimmicks."
-        )
-    else:
-        lines.append("• RECEPTION: BALANCED — Combine clear text with well-placed visual structure.")
-
-    # Understanding dimension
-    if understanding < -FSLSM_THRESHOLD:
-        lines.append(
-            "• UNDERSTANDING: SEQUENTIAL LEARNER — Present information in strict linear steps. "
-            "Ensure each step is fully understood before the next. Use numbered lists."
-        )
-    elif understanding > FSLSM_THRESHOLD:
-        lines.append(
-            "• UNDERSTANDING: GLOBAL LEARNER — Open with the big picture / executive summary. "
-            "Then fill in details. Show how pieces connect to the whole."
-        )
-    else:
-        lines.append("• UNDERSTANDING: BALANCED — Provide brief overview, then structured detail.")
-
-    lines.append("")
-    lines.extend(_formatting_rules())
-
-    return "\n".join(lines)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Legacy archetype → system prompt (backward compat, Phase 0)
-# ─────────────────────────────────────────────────────────────────────────────
 
 def build_adaptive_system_prompt(raw_scores: dict) -> str:
-    visual = raw_scores.get("visual", 0)
-    structural = raw_scores.get("structural", 0)
-    active = raw_scores.get("active", 0)
-    logic = raw_scores.get("logic", 0)
-
-    lines = [
-        "You are a Neuro-Adaptive Learning Assistant. "
-        "Your purpose is to explain, teach, and assess — tailored to this learner's cognitive profile.",
-        "",
-        "━━━ LEARNER COGNITIVE PROFILE (scores /50) ━━━",
-    ]
-
-    lines.append(f"• Visual Affinity: {visual}/50")
-    if visual > 35:
-        lines.append("  → Use ASCII diagrams, tables, and spatial metaphors liberally.")
-    elif visual < 15:
-        lines.append("  → Skip visual gimmicks. Use direct, precise text.")
-
-    lines.append(f"• Structural Overview: {structural}/50")
-    if structural > 35:
-        lines.append("  → ALWAYS open with a 'Big Picture' summary section.")
-    elif structural < 15:
-        lines.append("  → Get straight to the point. No lengthy preamble.")
-
-    lines.append(f"• Active Engagement: {active}/50")
-    if active > 35:
-        lines.append("  → End every explanation with a thought-provoking Socratic question.")
-
-    lines.append(f"• Logical Reasoning: {logic}/50")
-    if logic > 35:
-        lines.append("  → Prove claims using numbered step-by-step logical deductions.")
-
-    lines.append("")
-    lines.extend(_formatting_rules())
-
-    return "\n".join(lines)
+    """Legacy entry-point alias. Delegates to generate_system_prompt."""
+    return generate_system_prompt(raw_scores)
 
 
-def _formatting_rules() -> list[str]:
-    """Strict output formatting rules injected into every system prompt."""
-    return [
-        "━━━ MANDATORY OUTPUT FORMAT RULES ━━━",
-        "1. ALWAYS use Markdown: ## headings, **bold** key terms, `code` for identifiers.",
-        "2. STRUCTURE every response: (a) brief intro/hook, (b) main content, (c) summary or next step.",
-        "3. NO WALLS OF TEXT. Max 4 sentences per paragraph. Use bullet lists (–) for 3+ items.",
-        "4. Code examples MUST be in fenced code blocks with the language tag (e.g. ```python).",
-        "5. Use horizontal rules (---) to separate major sections for readability.",
-        "6. DO NOT mention the learner's scores or profile explicitly — adapt silently.",
-        "7. Keep your tone confident, precise, and encouraging — like a great professor.",
-    ]
+# ─── 4. BEHAVIORAL SIGNAL INFERENCE ──────────────────────────────────────────
+# Infers learning behavior signals from chat prompt text (keyword heuristics).
+# Maps signals to raw_score micro-deltas. No ML needed — lightweight and fast.
+
+_PROMPT_SIGNALS: list[tuple[list[str], str]] = [
+    (["diagram", "chart", "draw", "visualize", "picture", "graph"], "requested_diagram"),
+    (["show me", "example", "demonstrate", "illustrate"],           "requested_example"),
+    (["summary", "summarize", "tldr", "overview", "brief"],        "requested_summary"),
+    (["step by step", "step-by-step", "walkthrough", "how to", "how do i"], "requested_steps"),
+    (["why", "reason", "purpose", "what's the point"],             "prompt_why"),
+    (["big picture", "overall", "in general", "at a high level"], "prompt_big_picture"),
+]
+
+BEHAVIORAL_SIGNAL_DELTAS: dict[str, dict[str, float]] = {
+    "requested_diagram":   {"visual": +5},
+    "requested_example":   {"active": +4, "logic": +3},
+    "requested_summary":   {"structural": +5},
+    "requested_steps":     {"logic": +5},
+    "prompt_why":          {"structural": +3, "logic": +2},
+    "prompt_big_picture":  {"structural": +4},
+    # Time/depth signals (applied externally)
+    "long_read":           {"logic": +3, "structural": +2},
+    "quick_skim":          {"active": +3, "structural": -2},
+    # RLHF signals
+    "prefer_visual":       {"visual": +4},
+    "prefer_text":         {"visual": -4},
+    "prefer_overview":     {"structural": +4},
+    "prefer_details":      {"structural": -4},
+    "prefer_interactive":  {"active": +4},
+    "prefer_stepwise":     {"logic": +4},
+}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Quiz instructions injected into every chat system prompt
-# ─────────────────────────────────────────────────────────────────────────────
+def infer_signals_from_prompt(prompt: str) -> list[str]:
+    """
+    Lightweight keyword scan of user prompt → list of signal names.
+    Called on every chat message in the router.
+    """
+    p = prompt.lower()
+    return [signal for keywords, signal in _PROMPT_SIGNALS if any(k in p for k in keywords)]
+
+
+def apply_signals_to_scores(scores: dict, signals: list[str]) -> dict:
+    """
+    Apply a list of inferred signal names as micro-deltas to raw_scores.
+    Deltas are small (±3 to ±5) to prevent hard jumps. Clamps to [0, 100].
+    """
+    updated = dict(scores)
+    for sig in signals:
+        for dim, delta in BEHAVIORAL_SIGNAL_DELTAS.get(sig, {}).items():
+            updated[dim] = max(0.0, min(100.0, updated.get(dim, 50.0) + delta))
+    return updated
+
+
+def update_scores_from_feedback(scores: dict, signal: str) -> dict:
+    """
+    RLHF micro-feedback: apply a named signal delta to raw_scores.
+    Designed for explicit user feedback (e.g., 'prefer_visual').
+    """
+    return apply_signals_to_scores(scores, [signal])
+
+
+# ─── 5. CALIBRATION ENGINE ───────────────────────────────────────────────────
+# Scenario-based triage questions. Each answer maps to vector deltas.
+# No discrete categories — outputs feed directly into raw_scores.
+
+CALIBRATION_QUESTIONS: list[dict] = [
+    {
+        "id": "furniture",
+        "text": "New furniture arrives with no instructions. You:",
+        "options": {
+            "A": {"text": "Study all parts laid out visually first",   "delta": {"visual": +15, "structural": +8}},
+            "B": {"text": "Follow the numbered booklet step by step",  "delta": {"logic": +15, "structural": +10}},
+            "C": {"text": "Start assembling and fix mistakes as you go", "delta": {"active": +20, "structural": -8}},
+            "D": {"text": "Watch an assembly video online",            "delta": {"visual": +10, "active": +8}},
+        },
+    },
+    {
+        "id": "lecture",
+        "text": "You join a lecture 10 min late. You:",
+        "options": {
+            "A": {"text": "Ask someone for a quick summary",          "delta": {"structural": +12, "active": +5}},
+            "B": {"text": "Follow along from wherever they are",      "delta": {"active": +15, "logic": +5}},
+            "C": {"text": "Review slides to catch up before listening", "delta": {"visual": +12, "structural": +8}},
+            "D": {"text": "Take notes and piece it together later",   "delta": {"logic": +12, "structural": +5}},
+        },
+    },
+    {
+        "id": "unfamiliar",
+        "text": "Learning an unfamiliar concept, you prefer:",
+        "options": {
+            "A": {"text": "A diagram showing all relationships",          "delta": {"visual": +20}},
+            "B": {"text": "A worked example with annotations",           "delta": {"logic": +15, "visual": +5}},
+            "C": {"text": "A summary of key takeaways first",           "delta": {"structural": +20}},
+            "D": {"text": "A challenge problem to solve immediately",   "delta": {"active": +20}},
+        },
+    },
+]
+
+
+def process_calibration_answers(answers: dict[str, str]) -> dict[str, float]:
+    """
+    Convert {question_id: option_key} answers to cumulative dimension deltas.
+    Returns: {dim: total_delta} to be added to baseline raw_scores.
+    """
+    totals: dict[str, float] = {"visual": 0.0, "structural": 0.0, "active": 0.0, "logic": 0.0}
+    q_by_id = {q["id"]: q for q in CALIBRATION_QUESTIONS}
+
+    for qid, chosen_key in answers.items():
+        q = q_by_id.get(qid)
+        if not q:
+            continue
+        option = q["options"].get(chosen_key.upper())
+        if not option:
+            continue
+        for dim, delta in option["delta"].items():
+            totals[dim] = totals.get(dim, 0.0) + delta
+
+    return totals
+
+
+# ─── 6. SCORING ENGINE ───────────────────────────────────────────────────────
+# Format effectiveness score from multi-signal learning outcomes.
+# Used to continuously reinforce or attenuate active dimension weights.
+
+def compute_format_effectiveness(
+    accuracy: float,    # [0, 1] — quiz/task accuracy
+    completion: float,  # [0, 1] — session completion rate
+    engagement: float,  # [0, 1] — interaction depth (messages, follow-ups)
+    feedback: float,    # [0, 1] — explicit user feedback
+) -> float:
+    """Weighted composite effectiveness. Higher = format resonated with learner."""
+    return (
+        accuracy    * 0.5 +
+        completion  * 0.2 +
+        engagement  * 0.2 +
+        feedback    * 0.1
+    )
+
+
+def reinforce_scores_from_effectiveness(
+    scores: dict,
+    effectiveness: float,
+    active_dimensions: list[str],
+    learning_rate: float = 0.03,
+) -> dict:
+    """
+    Continuously adjust raw_scores based on format effectiveness.
+    effectiveness > 0.5 → reinforce active dimensions (they worked).
+    effectiveness < 0.5 → attenuate active dimensions (they didn't).
+    learning_rate: small value prevents large jumps. Tune 0.01–0.05.
+    """
+    updated = dict(scores)
+    # Maps [0,1] effectiveness → adjustment ∈ [-5, +5]
+    adjustment = learning_rate * (effectiveness - 0.5) * 100
+    for dim in active_dimensions:
+        updated[dim] = max(0.0, min(100.0, updated.get(dim, 50.0) + adjustment))
+    return updated
+
+
+# ─── 7. QUIZ INSTRUCTIONS ────────────────────────────────────────────────────
+# Injected into every chat system prompt as a protocol addendum.
 
 QUIZ_INSTRUCTIONS = """
 
@@ -185,42 +398,36 @@ DO NOT list the questions inline in your message. Put ALL quiz content inside <q
 """
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Archetype → legacy scores mapping
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── 8. LEGACY ARCHETYPE COMPAT ──────────────────────────────────────────────
 
 def archetype_to_scores(archetype: str) -> dict:
-    mapping = {
-        "THE_PIONEER":             {"visual": 25, "structural": 25, "active": 25, "logic": 25},
-        "THE_VISUAL_ARCHITECT":    {"visual": 45, "structural": 40, "active": 20, "logic": 20},
-        "THE_DEEP_SCHOLAR":        {"visual": 15, "structural": 45, "active": 10, "logic": 45},
-        "THE_STRATEGIC_SKIMMER":   {"visual": 20, "structural": 10, "active": 10, "logic": 20},
-        "THE_LOGICAL_TINKERER":    {"visual": 10, "structural": 20, "active": 40, "logic": 50},
-        "THE_ADAPTIVE_GENERALIST": {"visual": 30, "structural": 30, "active": 30, "logic": 30},
-        # Aliases used by profile service
-        "THE_VISUALIZER":  {"visual": 45, "structural": 25, "active": 20, "logic": 15},
-        "THE_ARCHITECT":   {"visual": 20, "structural": 45, "active": 15, "logic": 35},
-        "THE_SPRINTER":    {"visual": 20, "structural": 15, "active": 45, "logic": 20},
-        "THE_DEBUGGER":    {"visual": 15, "structural": 20, "active": 20, "logic": 45},
+    """Map legacy archetype strings to raw_scores for backward compatibility."""
+    _map = {
+        "THE_PIONEER":             {"visual": 50, "structural": 50, "active": 50, "logic": 50},
+        "THE_VISUAL_ARCHITECT":    {"visual": 90, "structural": 80, "active": 40, "logic": 40},
+        "THE_DEEP_SCHOLAR":        {"visual": 30, "structural": 90, "active": 20, "logic": 90},
+        "THE_STRATEGIC_SKIMMER":   {"visual": 40, "structural": 20, "active": 20, "logic": 40},
+        "THE_LOGICAL_TINKERER":    {"visual": 20, "structural": 40, "active": 80, "logic": 100},
+        "THE_ADAPTIVE_GENERALIST": {"visual": 60, "structural": 60, "active": 60, "logic": 60},
+        "THE_VISUALIZER":          {"visual": 90, "structural": 50, "active": 40, "logic": 30},
+        "THE_ARCHITECT":           {"visual": 40, "structural": 90, "active": 30, "logic": 70},
+        "THE_SPRINTER":            {"visual": 40, "structural": 30, "active": 90, "logic": 40},
+        "THE_DEBUGGER":            {"visual": 30, "structural": 40, "active": 40, "logic": 90},
     }
-    return mapping.get(archetype, mapping["THE_PIONEER"])
+    return _map.get(archetype, _map["THE_PIONEER"])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Standalone response generation (used by content adaptation)
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── 9. STANDALONE ASYNC GENERATION (legacy compat) ─────────────────────────
 
 async def generate_adapted_response(
     user_query: str,
     raw_scores: dict,
     chat_history: list | None = None,
 ) -> str:
-    system_prompt = build_adaptive_system_prompt(raw_scores)
+    system_prompt = generate_system_prompt(raw_scores)
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
-
     if chat_history:
         messages.extend(chat_history)
-
     messages.append({"role": "user", "content": user_query})
 
     try:
@@ -232,17 +439,13 @@ async def generate_adapted_response(
         return response.choices[0].message.content
     except Exception as e:
         print(f"Groq API Error: {e}")
-        return "I'm experiencing neural interference right now. Please try again in a moment."
+        return "I'm experiencing neural interference right now. Please try again."
 
 
 class AdaptationService:
-    async def adapt_content(self, original_text: str, current_archetype: str) -> str:
-        scores = archetype_to_scores(current_archetype)
-        query = (
-            "Please rewrite and adapt the following paragraph for me, "
-            "based on your instructions:\n\n" + original_text
-        )
-        return await generate_adapted_response(user_query=query, raw_scores=scores)
+    async def adapt_content(self, original_text: str, raw_scores: dict) -> str:
+        query = "Adapt the following text for me:\n\n" + original_text
+        return await generate_adapted_response(user_query=query, raw_scores=raw_scores)
 
 
 adaptation_service = AdaptationService()
