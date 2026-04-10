@@ -58,6 +58,25 @@ export default async function DashboardPage() {
     redirect("/mission");
   }
 
+  // 4. Calculate Adaptive Score (magnitude of FSLSM vector tuning)
+  const vector = profile.fslsm || { processing: 0, perception: 0, reception: 0, understanding: 0 };
+  const paramsRaw = Object.values(vector) as number[];
+  // If baseline (0), magnitude is 0. If highly polarized (1), magnitude is 1.
+  const adaptationMagnitude = paramsRaw.reduce((acc, val) => acc + Math.abs(val), 0) / 4;
+  const adaptiveScore = Math.min(100, Math.round(50 + (adaptationMagnitude * 50) + (profile.learning_sessions_count * 2)));
+
+  let tuningStage = "Baseline";
+  let tuningColor = "bg-green-100 text-green-800";
+  if (adaptiveScore > 85) {
+    tuningStage = "Highly Specialized";
+    tuningColor = "bg-[#FF9F1C] text-black border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]";
+  } else if (adaptiveScore > 65) {
+    tuningStage = "Actively Adapted";
+    tuningColor = "bg-purple-200 text-purple-900 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]";
+  } else if (adaptiveScore > 50) {
+    tuningStage = "Tuning...";
+  }
+
   return (
     <div className="min-h-screen bg-[#F4F1EA] text-black font-[family-name:var(--font-kodchasan)] pb-28">
       {/* NAVBAR */}
@@ -163,14 +182,28 @@ export default async function DashboardPage() {
             </p>
           </div>
 
-          <div className="bg-white border-2 border-black rounded-xl p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-y-1">
-            <div className="p-3 bg-green-100 border-2 border-black rounded-lg mb-4 w-fit">
+          <div className="bg-white border-2 border-black rounded-xl p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-transform hover:-translate-y-1 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-green-200 rounded-bl-full -mr-10 -mt-10 opacity-50 transition-all group-hover:scale-110" />
+            
+            <div className="p-3 bg-green-100 border-2 border-black rounded-lg mb-4 w-fit relative z-10">
               <Activity className="w-6 h-6 text-green-600" />
             </div>
-            <h3 className="text-gray-500 font-bold text-sm uppercase">
-              Adaptive Score
+            
+            <h3 className="text-gray-500 font-bold text-sm uppercase relative z-10 w-full flex justify-between items-center pr-2">
+              <span>Adaptive Score</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider ${tuningColor}`}>
+                {tuningStage}
+              </span>
             </h3>
-            <p className="text-4xl font-bold mt-1">94</p>
+            
+            <div className="flex items-end gap-2 mt-2 relative z-10">
+               <p className="text-4xl font-black">{adaptiveScore}</p>
+               <span className="text-sm font-bold text-gray-400 mb-1 tracking-widest">/ 100</span>
+            </div>
+            
+            <div className="w-full h-2 bg-gray-100 rounded-full border border-gray-300 mt-5 overflow-hidden relative z-10">
+               <div className="h-full bg-gradient-to-r from-green-400 via-purple-400 to-[#FF9F1C] transition-all duration-1000 ease-out" style={{ width: `${adaptiveScore}%` }} />
+            </div>
           </div>
         </div>
 

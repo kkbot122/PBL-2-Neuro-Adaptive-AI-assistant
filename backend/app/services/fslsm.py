@@ -79,12 +79,14 @@ BEHAVIORAL_SIGNALS: dict[str, dict] = {
     "asked_for_theory_first":      {"processing": +0.10},   # reflective
     "requested_exercise":          {"processing": -0.08},
     "reviewed_notes_before_reply": {"processing": +0.08},
+    "requested_example":           {"processing": -0.10},   # active (from router)
 
     # Perception dimension
     "asked_for_real_world_example": {"perception": -0.10},  # sensing
     "asked_for_pattern_or_theory":  {"perception": +0.10},  # intuitive
     "preferred_data_over_concept":  {"perception": -0.08},
     "preferred_concept_over_data":  {"perception": +0.08},
+    "prompt_why":                   {"perception": +0.10},  # intuitive (from router)
 
     # Reception dimension
     "requested_diagram":           {"reception": -0.12},    # visual
@@ -97,12 +99,25 @@ BEHAVIORAL_SIGNALS: dict[str, dict] = {
     "asked_big_picture":           {"understanding": +0.10},  # global
     "skipped_to_end":              {"understanding": +0.12},
     "read_linearly":               {"understanding": -0.08},
+    "requested_summary":           {"understanding": +0.10},  # global (from router)
+    "requested_steps":             {"understanding": -0.10},  # sequential (from router)
+    "prompt_big_picture":          {"understanding": +0.12},  # global (from router)
 
     # Quiz performance signals (compound)
     "quiz_got_visual_question":    {"reception": -0.08},
     "quiz_missed_visual_question": {"reception": +0.06},
     "quiz_got_logic_question":     {"processing": +0.06, "understanding": -0.06},
     "quiz_missed_logic_question":  {"processing": -0.06, "understanding": +0.04},
+    
+    # Direct FSLSM Feedback (from Frontend UI)
+    "nudge_more_visual":           {"reception": -0.20},
+    "nudge_more_verbal":           {"reception": +0.20},
+    "nudge_more_active":           {"processing": -0.20},
+    "nudge_more_reflective":       {"processing": +0.20},
+    "nudge_more_sensing":          {"perception": -0.20},
+    "nudge_more_intuitive":        {"perception": +0.20},
+    "nudge_more_sequential":       {"understanding": -0.20},
+    "nudge_more_global":           {"understanding": +0.20},
 }
 
 

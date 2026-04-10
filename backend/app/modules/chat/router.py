@@ -14,6 +14,7 @@ from app.services.adaptation import (
     infer_signals_from_prompt,
     apply_signals_to_scores,
 )
+from app.services.fslsm import signals_to_deltas, nudge_vector
 from app.modules.profiling.models import UserProfile
 from app.modules.chat.models import ChatSession, ChatMessage
 
@@ -220,15 +221,26 @@ async def send_message(
     bot_msg = ChatMessage(session_id=chat_session.id, role="bot", content=bot_text)
     db.add_all([user_msg, bot_msg])
 
-    # ── 7. Behavioral signal inference → update raw_scores ───────────────────
+    # ── 7. Behavioral signal inference → update profiles ───────────────────
     # Infer signals from the user's prompt and apply micro-deltas to their
     # cognitive profile so the adaptation engine evolves over time.
     if profile:
         signals = infer_signals_from_prompt(prompt)
         if signals:
+            # Update legacy scores
             current_scores = dict(profile.raw_scores or {})
             updated_scores = apply_signals_to_scores(current_scores, signals)
             profile.raw_scores = updated_scores
+            
+            # Update FSLSM vectors synchronously
+            current_fslsm = profile.fslsm_vectors
+            fslsm_deltas = signals_to_deltas(signals)
+            if any(v != 0.0 for v in fslsm_deltas.values()):
+                updated_fslsm = nudge_vector(current_fslsm, fslsm_deltas)
+                profile.fslsm_processing    = updated_fslsm["processing"]
+                profile.fslsm_perception    = updated_fslsm["perception"]
+                profile.fslsm_reception     = updated_fslsm["reception"]
+                profile.fslsm_understanding = updated_fslsm["understanding"]
 
     db.commit()
 
