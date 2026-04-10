@@ -1,79 +1,48 @@
-# app/modules/profile/service.py
 from app.modules.profile.schemas import CalibrationRequest
 
-# Standardized Archetype Dictionary
-ARCHETYPES = {
-    "VISUALIZER": "THE_VISUALIZER",
-    "ARCHITECT": "THE_ARCHITECT",
-    "SPRINTER": "THE_SPRINTER",
-    "DEBUGGER": "THE_DEBUGGER"
+_DIMS = ("visual", "structural", "active", "logic")
+_BASELINE = 15.0  # starting score for every dimension before deltas are applied
+
+_ARCHETYPE_MAP = {
+    "visual":      "THE_VISUALIZER",
+    "structural":  "THE_ARCHITECT",
+    "active":      "THE_SPRINTER",
+    "logic":       "THE_DEBUGGER",
 }
 
+_AB_DELTAS: dict[str, dict[str, float]] = {
+    "visual":  {"visual": 5.0},
+    "logical": {"logic": 5.0},
+}
+
+
 def calculate_profile(data: CalibrationRequest) -> dict:
-    tel = data.telemetry
-    quiz = data.quiz_results
+    """
+    Compute raw_scores and primary_archetype from calibration input.
 
-    # Baseline scores for the Radar Chart
-    scores = {
-        "visual": 10.0,      
-        "structural": 10.0,
-        "active": 10.0,
-        "logic": 10.0        
-    }
+    Strategy:
+    - Start every dimension at _BASELINE (15).
+    - Add the client-accumulated deltas (scenario + micro questions).
+    - Apply A/B choice bonus.
+    - Clamp each dimension to [0, 100].
+    - Pick the archetype as the highest-scoring dimension.
+    """
+    scores: dict[str, float] = {dim: _BASELINE for dim in _DIMS}
 
-    # 1. Visualizer Signals
-    if tel.clicked_diagram:
-        scores["visual"] += 15.0
-    # Add points based on time spent on diagram (cap at 20 pts)
-    scores["visual"] += min(tel.time_spent_on_visuals, 20.0)
-    # Huge boost if they got the visual spatial question right
-    if quiz.q3_correct: 
-        scores["visual"] += 15.0
+    # Accumulate scenario + micro deltas sent from the frontend
+    for dim, val in data.accumulated_scores.items():
+        if dim in scores:
+            scores[dim] += float(val)
 
-    # 2. Architect (Structural) Signals - They like high-level concepts
-    if tel.read_summary_first:
-        scores["structural"] += 15.0
-    scores["structural"] += min(tel.time_spent_on_summary, 20.0)
-    # Boost if they nailed the summary/concept question
-    if quiz.q2_correct: 
-        scores["structural"] += 15.0
+    # Apply A/B bonus
+    for dim, delta in _AB_DELTAS.get(data.ab_choice, {}).items():
+        scores[dim] = scores.get(dim, _BASELINE) + delta
 
-    # 3. Sprinter (Active) Signals - Fast, hands-on, impatient
-    if tel.scrolled_erratically:
-        scores["active"] += 20.0
-    # If they skimmed fast but still scored well, they are efficient Sprinters
-    if tel.time_spent_on_text < 20 and quiz.score >= 2:
-        scores["active"] += 20.0
-    # High clicking behavior
-    if tel.clicked_diagram and tel.read_summary_first:
-        scores["active"] += 10.0
+    # Clamp to [0, 100]
+    for dim in _DIMS:
+        scores[dim] = max(0.0, min(100.0, scores[dim]))
 
-    # 4. Debugger (Logic/Detail) Signals - Methodical, deep readers
-    scores["logic"] += min(tel.time_spent_on_text, 20.0)
-    if not tel.scrolled_erratically and not tel.read_summary_first:
-        scores["logic"] += 10.0
-    # Boost if they got the rote text detail question right
-    if quiz.q1_correct: 
-        scores["logic"] += 15.0
+    winner = max(scores, key=scores.__getitem__)
+    archetype = _ARCHETYPE_MAP.get(winner, "THE_PIONEER")
 
-    # Cap all scores at 50 max for the UI Radar Chart
-    for key in scores:
-        scores[key] = min(scores[key], 50.0)
-
-    # Determine Winner
-    winner = max(scores, key=scores.get)
-
-    archetype = ARCHETYPES["DEBUGGER"] # Default Fallback
-    if winner == "visual":
-        archetype = ARCHETYPES["VISUALIZER"]
-    elif winner == "structural":
-        archetype = ARCHETYPES["ARCHITECT"]
-    elif winner == "active":
-        archetype = ARCHETYPES["SPRINTER"]
-    elif winner == "logic":
-        archetype = ARCHETYPES["DEBUGGER"]
-
-    return {
-        "primary_archetype": archetype,
-        "raw_scores": scores
-    }
+    return {"primary_archetype": archetype, "raw_scores": scores}

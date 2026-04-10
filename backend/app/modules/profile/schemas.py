@@ -6,25 +6,14 @@ from typing import Dict, Optional
 # Calibration (mission / onboarding)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TelemetryData(BaseModel):
-    clicked_diagram: bool = False
-    read_summary_first: bool = False
-    time_spent_on_text: int = 0
-    time_spent_on_visuals: int = 0
-    time_spent_on_summary: int = 0
-    scrolled_erratically: bool = False
-
-
-class QuizResultsData(BaseModel):
-    score: int = 0
-    q1_correct: bool = False
-    q2_correct: bool = False
-    q3_correct: bool = False
-
-
 class CalibrationRequest(BaseModel):
-    telemetry: TelemetryData
-    quiz_results: QuizResultsData
+    """
+    Payload from the new behavior-driven calibration flow.
+    accumulated_scores: summed deltas from scenario + micro questions.
+    ab_choice: which format resonated in the A/B test ("visual" | "logical" | "neutral").
+    """
+    accumulated_scores: Dict[str, float]
+    ab_choice: str = "neutral"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
