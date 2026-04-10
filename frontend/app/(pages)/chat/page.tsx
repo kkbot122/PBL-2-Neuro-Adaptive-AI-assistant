@@ -11,8 +11,12 @@ import {
   X,
   FileText,
   Target,
+  Activity,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import { MarkdownMessage } from "@/components/MarkdownMessage";
+import { NeuroSidebar } from "./components/NeuroSidebar";
 
 type Message = {
   role: "user" | "bot";
@@ -30,6 +34,9 @@ export default function ChatPage() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
   const [pendingFeedback, setPendingFeedback] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0);
+  const [ratedMessages, setRatedMessages] = useState<Set<number>>(new Set());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -158,6 +165,7 @@ export default function ChatPage() {
         if (response.ok) {
           const data = await response.json();
           setMessages((prev) => [...prev, { role: "bot", content: data.text }]);
+          setSidebarRefreshTrigger(prev => prev + 1);
 
           if (data.session_id && data.session_id !== currentSessionIdRef.current) {
             setCurrentSessionId(data.session_id);
@@ -247,6 +255,14 @@ export default function ChatPage() {
         </div>
 
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-black transition-all ${isSidebarOpen ? 'bg-purple-200 shadow-[inset_2px_2px_0px_0px_rgba(0,0,0,1)]' : 'bg-white hover:bg-purple-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:-translate-y-px hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-y-0 active:translate-x-0'}`}
+          >
+            <Activity className="w-4 h-4 text-purple-600" />
+            <span className="font-bold text-sm hidden md:block">Profile</span>
+          </button>
+          
           <div className="flex items-center gap-3 bg-yellow-100 px-3 py-1.5 rounded-lg border-2 border-black">
             {session.user?.image ? (
               <img
@@ -266,10 +282,11 @@ export default function ChatPage() {
         </div>
       </nav>
 
-      {/* ── CHAT AREA ──────────────────────────────────────── */}
-      {/* PHASE 0 FIX: flex-1 + overflow-y-auto makes this area scroll independently */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto w-full px-4 md:px-6 py-6">
+      {/* ── MAIN CONTENT W/ SIDEBAR ──────────────────────── */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* ── CHAT AREA ──────────────────────────────────────── */}
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-4xl mx-auto w-full px-4 md:px-6 py-6">
           {/* Empty state */}
           {messages.length === 0 && !isHistoryLoading && (
             <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-center">
@@ -334,15 +351,39 @@ export default function ChatPage() {
                         }`}
                       >
                         {msg.role === "bot" ? (
-                          /* PHASE 0 FIX: Render markdown for bot messages */
-                          <MarkdownMessage
-                            content={
-                              cleanContent ||
-                              (hasQuiz
-                                ? "I've prepared an assessment for you. Click below when ready."
-                                : "...")
-                            }
-                          />
+                          <div className="flex flex-col">
+                            {/* PHASE 0 FIX: Render markdown for bot messages */}
+                            <MarkdownMessage
+                              content={
+                                cleanContent ||
+                                (hasQuiz
+                                  ? "I've prepared an assessment for you. Click below when ready."
+                                  : "...")
+                              }
+                            />
+                            {/* Style Check Feedback */}
+                            {!hasQuiz && msg.content && (
+                              <div className="mt-3 flex items-center justify-end gap-2 border-t border-gray-100 pt-2">
+                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mr-2">Style Check</span>
+                                <button
+                                  onClick={() => setRatedMessages(prev => new Set(prev).add(index))}
+                                  disabled={ratedMessages.has(index)}
+                                  className={`p-1.5 rounded transition-all ${ratedMessages.has(index) ? 'opacity-50 cursor-not-allowed text-gray-400' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'}`}
+                                  title="This teaching style works for me"
+                                >
+                                  <ThumbsUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => setRatedMessages(prev => new Set(prev).add(index))}
+                                  disabled={ratedMessages.has(index)}
+                                  className={`p-1.5 rounded transition-all ${ratedMessages.has(index) ? 'opacity-50 cursor-not-allowed text-gray-400' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`}
+                                  title="I'd prefer a different style"
+                                >
+                                  <ThumbsDown className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <p className="text-sm md:text-base whitespace-pre-wrap">
                             {msg.content}
@@ -409,8 +450,12 @@ export default function ChatPage() {
           )}
         </div>
       </main>
+      
+      {/* ── NEURO SIDEBAR ───────────────────────────────────── */}
+      <NeuroSidebar isOpen={isSidebarOpen} refreshTrigger={sidebarRefreshTrigger} />
+    </div>
 
-      {/* ── CHAT INPUT ─────────────────────────────────────── */}
+    {/* ── CHAT INPUT ─────────────────────────────────────── */}
       <div className="flex-shrink-0 w-full bg-[#F4F1EA] border-t-2 border-black px-4 py-4">
         <div className="max-w-3xl mx-auto">
           {/* File attachment pill */}

@@ -96,35 +96,35 @@ RAW_DIRECTIVES: list[Directive] = [
 # FSLSM directives (used when FSLSM vectors have meaningful signal)
 FSLSM_DIRECTIVES: list[Directive] = [
     Directive(
-        "Theoretical depth, multiple perspectives, reflective summaries.",
+        "I am adapting this to your reflective style: I will provide theoretical depth, multiple perspectives, and reflective summaries. Let's think deeply.",
         {"processing": +1.0},
     ),
     Directive(
-        "Immediate hands-on exercises; avoid lengthy theory blocks.",
+        "I notice you learn best actively: We'll skip the lengthy theory and jump straight into hands-on exercises and immediate application.",
         {"processing": -1.0},
     ),
     Directive(
-        "Real data, established facts, concrete procedures.",
+        "Since you prefer a sensing approach: I'm grounding this in real data, established facts, and concrete procedures.",
         {"perception": -1.0},
     ),
     Directive(
-        "Highlight patterns, relationships, conceptual 'why'.",
+        "To match your intuitive preference: I'll highlight the underlying patterns, relationships, and the conceptual 'why' behind this.",
         {"perception": +1.0},
     ),
     Directive(
-        "ASCII diagrams, comparison grids, spatial layout.",
+        "As a visual learner: I'm including ASCII diagrams, comparison grids, and spatial layouts to map this out for you clearly.",
         {"reception": -1.0},
     ),
     Directive(
-        "Rich annotated written explanations over visual gimmicks.",
+        "Since you prefer verbal explanations: I'm focusing on rich, annotated written explanations rather than visual gimmicks.",
         {"reception": +1.0},
     ),
     Directive(
-        "Strict linear steps; fully master each before the next.",
+        "I am structuring this sequentially for you: We will follow strict linear steps, fully mastering each before moving to the next.",
         {"understanding": -1.0},
     ),
     Directive(
-        "Open with the big picture; show how pieces connect to the whole.",
+        "To give you the global picture you prefer: I'll first show how all the pieces connect to the whole before diving into details.",
         {"understanding": +1.0},
     ),
 ]
