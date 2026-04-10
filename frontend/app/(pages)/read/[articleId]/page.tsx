@@ -76,7 +76,7 @@ export default async function ReadPage({
   return (
     <div className="relative min-h-screen bg-[#F4F1EA] text-black font-[family-name:var(--font-kodchasan)] pb-20">
       {/* 1. CALIBRATION OVERLAY */}
-      {needsCalibration && <CalibrationQuiz userEmail={session.user.email} />}
+      {needsCalibration && <CalibrationQuiz />}
 
       <div className="max-w-4xl mx-auto px-6 py-12">
         {/* Header Section */}

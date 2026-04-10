@@ -1,60 +1,48 @@
 from app.modules.profile.schemas import CalibrationRequest
 
-# Standardized Archetype Dictionary
-ARCHETYPES = {
-    "VISUALIZER": "THE_VISUALIZER",
-    "ARCHITECT": "THE_ARCHITECT",
-    "SPRINTER": "THE_SPRINTER",
-    "DEBUGGER": "THE_DEBUGGER"
+_DIMS = ("visual", "structural", "active", "logic")
+_BASELINE = 15.0  # starting score for every dimension before deltas are applied
+
+_ARCHETYPE_MAP = {
+    "visual":      "THE_VISUALIZER",
+    "structural":  "THE_ARCHITECT",
+    "active":      "THE_SPRINTER",
+    "logic":       "THE_DEBUGGER",
 }
 
+_AB_DELTAS: dict[str, dict[str, float]] = {
+    "visual":  {"visual": 5.0},
+    "logical": {"logic": 5.0},
+}
+
+
 def calculate_profile(data: CalibrationRequest) -> dict:
-    # Baseline scores for the Radar Chart
-    scores = {
-        "visual": 10.0,      
-        "structural": 10.0,
-        "active": 10.0,
-        "logic": 10.0        
-    }
+    """
+    Compute raw_scores and primary_archetype from calibration input.
 
-    # 1. Visualizer Signals
-    if data.clicked_diagram:
-        scores["visual"] += 30.0
-    
-    # 2. Architect (Structural) Signals
-    if data.read_summary_first:
-        scores["structural"] += 30.0
-    if data.time_spent_on_text < 30 and not data.scrolled_erratically:
-        scores["structural"] += 15.0
+    Strategy:
+    - Start every dimension at _BASELINE (15).
+    - Add the client-accumulated deltas (scenario + micro questions).
+    - Apply A/B choice bonus.
+    - Clamp each dimension to [0, 100].
+    - Pick the archetype as the highest-scoring dimension.
+    """
+    scores: dict[str, float] = {dim: _BASELINE for dim in _DIMS}
 
-    # 3. Sprinter (Active) Signals
-    if data.interacted_with_quiz:
-        scores["active"] += 25.0
-    if data.scrolled_erratically:
-        scores["active"] += 20.0
+    # Accumulate scenario + micro deltas sent from the frontend
+    for dim, val in data.accumulated_scores.items():
+        if dim in scores:
+            scores[dim] += float(val)
 
-    # 4. Debugger (Logic) Signals
-    if data.time_spent_on_text > 45 and not data.scrolled_erratically and not data.read_summary_first:
-        scores["logic"] += 30.0
+    # Apply A/B bonus
+    for dim, delta in _AB_DELTAS.get(data.ab_choice, {}).items():
+        scores[dim] = scores.get(dim, _BASELINE) + delta
 
-    # Cap all scores at 50 max for the UI Radar Chart
-    for key in scores:
-        scores[key] = min(scores[key], 50.0)
+    # Clamp to [0, 100]
+    for dim in _DIMS:
+        scores[dim] = max(0.0, min(100.0, scores[dim]))
 
-    # Determine Winner
-    winner = max(scores, key=scores.get)
+    winner = max(scores, key=scores.__getitem__)
+    archetype = _ARCHETYPE_MAP.get(winner, "THE_PIONEER")
 
-    archetype = ARCHETYPES["DEBUGGER"] # Default Fallback
-    if winner == "visual":
-        archetype = ARCHETYPES["VISUALIZER"]
-    elif winner == "structural":
-        archetype = ARCHETYPES["ARCHITECT"]
-    elif winner == "active":
-        archetype = ARCHETYPES["SPRINTER"]
-    elif winner == "logic":
-        archetype = ARCHETYPES["DEBUGGER"]
-
-    return {
-        "primary_archetype": archetype,
-        "raw_scores": scores
-    }
+    return {"primary_archetype": archetype, "raw_scores": scores}
