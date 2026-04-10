@@ -118,6 +118,14 @@ BEHAVIORAL_SIGNALS: dict[str, dict] = {
     "nudge_more_intuitive":        {"perception": +0.20},
     "nudge_more_sequential":       {"understanding": -0.20},
     "nudge_more_global":           {"understanding": +0.20},
+
+    # RLHF Style Check Feedback (from thumbs-up/down in chat)
+    "prefer_visual":               {"reception": -0.15},
+    "prefer_text":                 {"reception": +0.15},
+    "prefer_overview":             {"understanding": +0.12},
+    "prefer_details":              {"understanding": -0.12},
+    "prefer_interactive":          {"processing": -0.12},
+    "prefer_stepwise":             {"understanding": -0.10, "processing": +0.08},
 }
 
 
