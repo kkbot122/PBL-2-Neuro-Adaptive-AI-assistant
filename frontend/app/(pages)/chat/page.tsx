@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { MarkdownMessage } from "@/components/MarkdownMessage";
 import { NeuroSidebar } from "./components/NeuroSidebar";
+import { applyBehavioralSignalsAction } from "@/app/actions/profile";
 
 type Message = {
   role: "user" | "bot";
@@ -366,7 +367,13 @@ export default function ChatPage() {
                               <div className="mt-3 flex items-center justify-end gap-2 border-t border-gray-100 pt-2">
                                 <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mr-2">Style Check</span>
                                 <button
-                                  onClick={() => setRatedMessages(prev => new Set(prev).add(index))}
+                                  onClick={async () => {
+                                    setRatedMessages(prev => { const s = new Set(prev); s.add(index); return s; });
+                                    try {
+                                      await applyBehavioralSignalsAction(["prefer_visual", "prefer_overview"]);
+                                      setSidebarRefreshTrigger(prev => prev + 1);
+                                    } catch (e) { console.error("Style feedback failed", e); }
+                                  }}
                                   disabled={ratedMessages.has(index)}
                                   className={`p-1.5 rounded transition-all ${ratedMessages.has(index) ? 'opacity-50 cursor-not-allowed text-gray-400' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'}`}
                                   title="This teaching style works for me"
@@ -374,7 +381,13 @@ export default function ChatPage() {
                                   <ThumbsUp className="w-3.5 h-3.5" />
                                 </button>
                                 <button
-                                  onClick={() => setRatedMessages(prev => new Set(prev).add(index))}
+                                  onClick={async () => {
+                                    setRatedMessages(prev => { const s = new Set(prev); s.add(index); return s; });
+                                    try {
+                                      await applyBehavioralSignalsAction(["prefer_text", "prefer_details"]);
+                                      setSidebarRefreshTrigger(prev => prev + 1);
+                                    } catch (e) { console.error("Style feedback failed", e); }
+                                  }}
                                   disabled={ratedMessages.has(index)}
                                   className={`p-1.5 rounded transition-all ${ratedMessages.has(index) ? 'opacity-50 cursor-not-allowed text-gray-400' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`}
                                   title="I'd prefer a different style"
