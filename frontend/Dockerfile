@@ -2,6 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+ENV WATCHPACK_POLLING=true
+
 # Copy package files to leverage Docker cache
 COPY package.json package-lock.json ./
 

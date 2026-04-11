@@ -2,71 +2,36 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+import { submitCalibrationAction } from "@/app/actions/profile"; // <-- Import the Server Action
 
 const questions = [
   {
     id: "pref",
     text: "When learning something complex, what's your first instinct?",
     options: [
-      {
-        label: "Look for a diagram or flowchart",
-        dimension: "visual",
-        points: 20,
-      },
-      {
-        label: "Read a detailed explanation",
-        dimension: "textual",
-        points: 20,
-      },
-      {
-        label: "Check the logic or code samples",
-        dimension: "logic",
-        points: 20,
-      },
+      { label: "Look for a diagram or flowchart", dimension: "visual", points: 20 },
+      { label: "Read a detailed explanation", dimension: "textual", points: 20 },
+      { label: "Check the logic or code samples", dimension: "logic", points: 20 },
     ],
   },
   {
     id: "depth",
     text: "How much detail do you usually want upfront?",
     options: [
-      {
-        label: "Just the 'TL;DR' (Too Long; Didn't Read)",
-        dimension: "textual",
-        points: 5,
-      },
+      { label: "Just the 'TL;DR' (Too Long; Didn't Read)", dimension: "textual", points: 5 },
       { label: "A comprehensive deep dive", dimension: "depth", points: 25 },
     ],
   },
 ];
 
-interface CalibrationQuizProps {
-  userEmail: string;
-}
-
-export default function CalibrationQuiz({ userEmail }: CalibrationQuizProps) {
+export default function CalibrationQuiz() {
   const [step, setStep] = useState(0);
   const router = useRouter();
 
   const handleSelection = async (dimension: string, points: number) => {
     try {
-      await fetch(`${API_URL}/api/v1/profile/calibrate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-user-email": userEmail,
-          "x-internal-token":
-            process.env.NEXT_PUBLIC_INTERNAL_API_KEY ||
-            "MY_SUPER_SECRET_INTERNAL_KEY",
-        },
-        body: JSON.stringify({
-          paragraph_id: 0,
-          dimension,
-          points,
-          calibration: true,
-        }),
-      });
+      // Calls the secure server action instead of exposing keys in the browser
+      await submitCalibrationAction(dimension, points);
 
       if (step < questions.length - 1) {
         setStep((prev) => prev + 1);
